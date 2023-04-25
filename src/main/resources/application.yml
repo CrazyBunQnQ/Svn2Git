@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/your_database_name?serverTimezone=UTC&useSSL=false
+    username: your_username
+    password: your_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+svn:
+  repository:
+    url: https://your_svn_repository_url
+    username: your_svn_username
+    password: your_svn_password
+
+gitlab:
+  api:
+    url: https://your_gitlab_api_url
+    private-token: your_gitlab_private_token
+
+sync:
+  schedule:
+    svn-pull: 0 0/5 * * * *
+    gitlab-push: 0 0/10 * * * *
