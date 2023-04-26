@@ -13,6 +13,9 @@ import org.tmatesoft.svn.core.io.SVNRepository;
 import org.tmatesoft.svn.core.io.SVNRepositoryFactory;
 import org.tmatesoft.svn.core.wc.*;
 
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -361,6 +364,10 @@ public class Svn2GitTest {
         for (String branch : sortedBranches) {
             String gitRepoName = gitRepoPath.substring(gitRepoPath.lastIndexOf(File.separator) + 1);
             if ("master".equals(branch) || (!branch.toLowerCase().startsWith(gitRepoName.toLowerCase() + "_") && !BRANCH_WITELIST.contains(branch))) {
+                try {
+                    sendMail();
+                } catch (Exception ignored) {
+                }
                 continue;
             }
             System.out.println("检出分支：" + branch);
@@ -409,6 +416,10 @@ public class Svn2GitTest {
             Status status = git.status().call();
             Set<String> untracked = status.getUntracked();
             if (untracked.size() > 0) {
+                try {
+                    sendMail();
+                } catch (Exception ignored) {
+                }
                 System.out.println("untracked: " + untracked);
             }
             if ("".equals(commitMsg)) {
@@ -447,6 +458,10 @@ public class Svn2GitTest {
                 if (untracked.size() > 0) {
                     System.out.println("untracked: " + untracked);
                 }
+                try {
+                    sendMail();
+                } catch (Exception ignored) {
+                }
                 git.commit().setMessage("SVN vision " + version + " new branch fix").call();
             }
         }
@@ -468,6 +483,10 @@ public class Svn2GitTest {
             git.checkout().setName(branch).call();
             return false;
         } catch (RefNotFoundException e) {
+            try {
+                sendMail();
+            } catch (Exception ignored) {
+            }
             // git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
             git.checkout().setCreateBranch(true).setName(branch).call();
             return true;
@@ -504,5 +523,33 @@ public class Svn2GitTest {
             }
         }
         return Files.deleteIfExists(file.toPath());
+    }
+
+    public static void sendMail() throws Exception {
+        String host = "smtp.qq.com";
+        String sender = "sender@qq.com";
+        String recipient = "recipient@qq.com";
+        String authCode = "授权码";
+
+        Properties props = new Properties();
+        props.put("mail.smtp.host", host);
+        props.put("mail.smtp.auth", "true");
+        props.put("mail.smtp.ssl.enable", "true");
+
+        Session session = Session.getInstance(props, new Authenticator() {
+            protected PasswordAuthentication getPasswordAuthentication() {
+                return new PasswordAuthentication(sender, authCode);
+            }
+        });
+
+        Message message = new MimeMessage(session);
+        message.setFrom(new InternetAddress(sender));
+        message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+        message.setSubject("测试邮件");
+
+        String content = "这是一封测试邮件";
+        message.setContent(content, "text/html;charset=UTF-8");
+
+        Transport.send(message);
     }
 }
