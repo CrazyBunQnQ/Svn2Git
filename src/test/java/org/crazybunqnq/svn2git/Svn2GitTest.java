@@ -2,6 +2,7 @@ package org.crazybunqnq.svn2git;
 
 import org.crazybunqnq.entity.MergedSVNLogEntry;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.StoredConfig;
@@ -32,8 +33,8 @@ public class Svn2GitTest {
 
     private static Map<String, String> emailMap = new HashMap<>();
 
-    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[] {".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log"});
-    private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[] {"platform-divider"});
+    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log"});
+    private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
 
 
     static {
@@ -75,29 +76,6 @@ public class Svn2GitTest {
                 System.exit(1);
             }
         }
-    }
-
-    @Test
-    public void updateSvnToRevisionTest() throws IOException, SVNException, GitAPIException {
-        // long revision = readRevisionFromLogFile(LOG_FILE_PATH, curVersion);
-        Long curSvnVersionInGit = getCurrentSvnVersionFromGit("F:\\GitRepo\\Platform");
-        long revision = readRevisionFromLogFile(LOG_FILE_PATH, curSvnVersionInGit);
-        String author = readAuthorFromLogFile(LOG_FILE_PATH, revision);
-        updateSvnToRevision("F:\\SvnRepo\\Platform", revision);
-
-        Pattern branchRegx = Pattern.compile(".*/branches/([^/]+).*");
-        Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(LOG_FILE_PATH, revision, branchRegx);
-        try {
-            copySvnChangesToGit("F:\\SvnRepo\\Platform", "F:\\GitRepo\\Platform", changesByBranch, revision, author, "");
-        } catch (Exception e) {
-
-        }
-    }
-
-    @Test
-    public void svnVersionsDiffTest() throws SVNException, FileNotFoundException {
-        SVNRepository repository = setupSvnRepository(SVN_URL, USERNAME, PASSWORD);
-        getDiffBy2VersionFromSvn(repository, 12L, 25L);
     }
 
     /**
@@ -220,6 +198,7 @@ public class Svn2GitTest {
 
     /**
      * 从文件中读取 revision
+     *
      * @param gitRepoPath
      * @return
      * @throws IOException
@@ -259,6 +238,7 @@ public class Svn2GitTest {
 
     /**
      * 从文件中读取 author
+     *
      * @param filePath
      * @param version
      * @return
@@ -278,6 +258,7 @@ public class Svn2GitTest {
         }
         return null;
     }
+
     private String readMessageFromLogFile(String filePath, long version) throws IOException {
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String line;
@@ -404,8 +385,6 @@ public class Svn2GitTest {
                         System.out.println("Source file not exist or source file is directory: " + sourceFile.getAbsolutePath());
                         continue;
                     }
-                    if (sourceFile.isDirectory()) {
-                    }
                     Files.createDirectories(targetPath.getParent());
                     if (sourceFile.isDirectory()) {
                         System.out.println("复制目录: " + sourcePath + " -> " + targetPath);
@@ -418,13 +397,20 @@ public class Svn2GitTest {
                             System.out.println("删除目录: " + targetPath);
                         }
                         rmDirs(targetFile);
-                        git.rm().addFilepattern(contentPath).call();
+                        git.rm().addFilepattern(".").addFilepattern(contentPath).call();
+                        git.rm().setCached(true).addFilepattern(".").addFilepattern(contentPath).call();
                     }
                 }
             }
 
             System.out.println("提交分支：" + branch);
             git.add().addFilepattern(".").call();
+            git.add().setUpdate(true).addFilepattern(".").call();
+            Status status = git.status().call();
+            Set<String> untracked = status.getUntracked();
+            if (untracked.size() > 0) {
+                System.out.println("untracked: " + untracked);
+            }
             if ("".equals(commitMsg)) {
                 git.commit().setMessage("SVN vision " + version).call();
             } else {
@@ -439,6 +425,8 @@ public class Svn2GitTest {
                     for (File file : files) {
                         if (!DELETE_WITELIST.contains(file.getName())) {
                             rmDirs(file);
+                            git.rm().addFilepattern(".").addFilepattern(file.getName()).call();
+                            git.rm().setCached(true).addFilepattern(".").addFilepattern(file.getName()).call();
                         }
                     }
                 }
@@ -451,10 +439,14 @@ public class Svn2GitTest {
                             System.out.println("复制目录: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + file.getName());
                         }
                         copyFile(file, new File(gitRepoPath + File.separator + file.getName()));
+                        git.add().addFilepattern(".").addFilepattern(file.getName()).call();
                     }
                 }
-                git.rm().addFilepattern(".").setCached(true).call();
-                git.add().addFilepattern(".").call();
+                status = git.status().call();
+                untracked = status.getUntracked();
+                if (untracked.size() > 0) {
+                    System.out.println("untracked: " + untracked);
+                }
                 git.commit().setMessage("SVN vision " + version + " new branch fix").call();
             }
         }
@@ -463,6 +455,7 @@ public class Svn2GitTest {
 
     /**
      * 检出或创建新分支
+     *
      * @param branch 目标分支
      * @return 是否创建新分支
      */
