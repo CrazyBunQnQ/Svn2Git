@@ -419,8 +419,18 @@ public class Svn2GitTest {
                 git.rm().setCached(true).addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> untracked = status.getUntracked();
+                Set<String> modified = status.getModified();
+                Set<String> removed = status.getRemoved();
+                Set<String> missing = status.getMissing();
                 System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
-                if (untracked.size() > 0) {
+                if (missing.size() > 0) {
+                    RmCommand rm = git.rm();
+                    for (String missingFile : missing) {
+                        rm.addFilepattern(missingFile);
+                    }
+                    rm.call();
+                }
+                if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
                     try {
                         sendMail();
                     } catch (Exception ignored) {
@@ -464,6 +474,9 @@ public class Svn2GitTest {
                 git.add().addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> untracked = status.getUntracked();
+                Set<String> modified = status.getModified();
+                Set<String> removed = status.getRemoved();
+                Set<String> missing = status.getMissing();
                 System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 try {
                     sendMail();
@@ -471,6 +484,13 @@ public class Svn2GitTest {
                 }
                 if (untracked.size() > 0) {
                     System.out.println("        untracked: " + untracked);
+                }
+                if (missing.size() > 0) {
+                    RmCommand rm = git.rm();
+                    for (String missingFile : missing) {
+                        rm.addFilepattern(missingFile);
+                    }
+                    rm.call();
                 }
                 // git.commit().setMessage("SVN vision " + version + " new branch fix").call();
                 if ("".equals(commitMsg)) {
