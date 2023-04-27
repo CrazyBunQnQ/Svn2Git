@@ -1,8 +1,7 @@
 package org.crazybunqnq.svn2git;
 
 import org.crazybunqnq.entity.MergedSVNLogEntry;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.Status;
+import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.StoredConfig;
@@ -410,8 +409,11 @@ public class Svn2GitTest {
                         }
                     }
                 }
+                // 从 master 分支检出 .gitignore 文件
+                if (!"master".equals(branch)) {
+                    git.checkout().addPath(".gitignore").setStartPoint("master").call();
+                }
                 System.out.println("        " + branch + " 分支修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
-
                 starttime = System.currentTimeMillis();
                 git.add().addFilepattern(".").call();
                 git.rm().setCached(true).addFilepattern(".").call();
