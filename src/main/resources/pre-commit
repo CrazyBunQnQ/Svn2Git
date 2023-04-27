@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# 设置Git和SVN仓库路径
+GIT_REPO_PATH="D:/gitProject"
+SVN_REPO_PATH="D:/svnProject"
+
+# 获取git暂存区(staged)中的文件列表
+staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+
+# 如果没有暂存的文件，直接退出
+if [ -z "$staged_files" ]; then
+  exit 1
+fi
+
+# 使用patch模式将Git暂存区的更改应用于SVN工作副本
+for file in $staged_files; do
+  git diff --cached --patch $file | (cd $SVN_REPO_PATH && patch -p1)
+  if [ $? -ne 0 ]; then
+    echo "Patching $file failed. Aborting commit."
+    exit 1
+  fi
+  svn add $SVN_REPO_PATH/$file --force
+done
+
+# 提交SVN工作副本的更改
+svn_commit_msg=$(git log -1 --pretty=%B)
+cd $SVN_REPO_PATH
+svn commit -m "$svn_commit_msg"
+
+# 恢复SVN工作副本的文件
+for file in $staged_files; do
+  svn revert $SVN_REPO_PATH/$file
+done
+
+# 拒绝git提交
+echo "Git commit has been rejected. Changes have been committed to the SVN repository."
+exit 1
