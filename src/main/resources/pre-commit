@@ -18,9 +18,10 @@ fi
 
 # 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+deleted_files=$(git diff --cached --name-only --diff-filter=D)
 
 # 如果没有暂存的文件，直接退出
-if [ -z "$staged_files" ]; then
+if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
   exit 1
 fi
 
@@ -32,6 +33,11 @@ for file in $staged_files; do
     exit 1
   fi
   svn add $SVN_REPO_PATH/$file --force
+done
+
+# 在SVN工作副本中删除文件
+for file in $deleted_files; do
+  svn rm $SVN_REPO_PATH/$file
 done
 
 # 提交SVN工作副本的更改
