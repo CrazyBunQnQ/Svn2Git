@@ -1,7 +1,9 @@
 package org.crazybunqnq.svn2git;
 
 import org.crazybunqnq.entity.MergedSVNLogEntry;
-import org.eclipse.jgit.api.*;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.RmCommand;
+import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.StoredConfig;
@@ -35,8 +37,11 @@ public class Svn2GitTest {
 
     private static Map<String, String> emailMap = new HashMap<>();
 
-    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log"});
+    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
+    private static final long FORCE_FIX_VERSION_INTERVAL = 500;
+    private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
+    private static Map<String, Long> lastFixVersion;
 
 
     static {
@@ -45,6 +50,9 @@ public class Svn2GitTest {
 
     @Test
     public void getSvnCommitLogTest() throws SVNException, IOException {
+        final String svnRepoPath = "F:\\SvnRepo\\Platform";
+        final String gitRepoPath = "F:\\GitRepo\\Platform";
+        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
         // 1. 获取 svn 仓库
         SVNRepository repository = setupSvnRepository(SVN_URL, USERNAME, PASSWORD);
         // 2. 获取 svn 仓库的提交记录
@@ -56,14 +64,14 @@ public class Svn2GitTest {
         long revision = readRevisionFromLogFile(LOG_FILE_PATH, null);
         long startTime;
         while (revision > 0) {
-            Long curSvnVersionInGit = getCurrentSvnVersionFromGit("F:\\GitRepo\\Platform");
+            Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
             revision = readRevisionFromLogFile(LOG_FILE_PATH, curSvnVersionInGit);
             String author = readAuthorFromLogFile(LOG_FILE_PATH, revision);
             String commitMsg = readMessageFromLogFile(LOG_FILE_PATH, revision);
             System.out.println("开始更新 svn 版本到 " + revision);
             try {
                 startTime = System.currentTimeMillis();
-                updateSvnToRevision("F:\\SvnRepo\\Platform", revision);
+                updateSvnToRevision(svnRepoPath, revision);
                 System.out.println("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
                 e.printStackTrace();
@@ -74,7 +82,7 @@ public class Svn2GitTest {
             System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
                 startTime = System.currentTimeMillis();
-                copySvnChangesToGit("F:\\SvnRepo\\Platform", "F:\\GitRepo\\Platform", changesByBranch, revision, author, commitMsg);
+                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg);
                 System.out.println("    提交 " + revision + " 版本资源到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
                 e.printStackTrace();
@@ -371,6 +379,12 @@ public class Svn2GitTest {
             }
             boolean isNewBranch = checkoutOrCreateBranch(git, branch);
 
+            long lastVersion = lastFixVersion.containsKey(branch) ? lastFixVersion.get(branch) : 0;
+            if (version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
+                System.out.println("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
+                isNewBranch = true;
+            }
+
             long starttime = System.currentTimeMillis();
             if (!isNewBranch) {
                 List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
@@ -413,7 +427,10 @@ public class Svn2GitTest {
                 if (!"master".equals(branch)) {
                     git.checkout().addPath(".gitignore").setStartPoint("master").call();
                 }
-                System.out.println("        " + branch + " 分支修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                long costtime = (System.currentTimeMillis() - starttime) / 1000;
+                if (costtime > 2L) {
+                    System.out.println("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
+                }
                 starttime = System.currentTimeMillis();
                 git.add().addFilepattern(".").call();
                 git.rm().setCached(true).addFilepattern(".").call();
@@ -450,6 +467,7 @@ public class Svn2GitTest {
                 if (files != null) {
                     for (File file : files) {
                         if (!DELETE_WITELIST.contains(file.getName())) {
+                            System.out.println("        删除目录: " + file.getAbsolutePath());
                             rmDirs(file);
                             // git.rm().addFilepattern(".").addFilepattern(file.getName()).call();
                             // git.rm().setCached(true).addFilepattern(".").addFilepattern(file.getName()).call();
@@ -468,7 +486,10 @@ public class Svn2GitTest {
                         // git.add().addFilepattern(".").addFilepattern(file.getName()).call();
                     }
                 }
-                System.out.println("        " + branch + "分支修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                long costtime = (System.currentTimeMillis() - starttime) / 1000;
+                if (costtime > 2L) {
+                    System.out.println("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
+                }
                 starttime = System.currentTimeMillis();
                 git.rm().setCached(true).addFilepattern(".").call();
                 git.add().addFilepattern(".").call();
@@ -498,6 +519,8 @@ public class Svn2GitTest {
                 } else {
                     git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
                 }
+                lastFixVersion.put(branch, version);
+                writeFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE, lastFixVersion);
             }
         }
         git.close();
@@ -588,5 +611,38 @@ public class Svn2GitTest {
         message.setContent(content, "text/html;charset=UTF-8");
 
         Transport.send(message);
+    }
+
+    public static Map<String, Long> readFixVersion(String filePath) {
+        Map<String, Long> lastFixVersion = new HashMap<>();
+
+        try (Scanner scanner = new Scanner(new File(filePath))) {
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                String[] parts = line.split("=");
+                String branch = parts[0];
+                long version = Long.parseLong(parts[1]);
+                lastFixVersion.put(branch, version);
+            }
+        } catch (FileNotFoundException e) {
+            System.out.println("File not found: " + filePath);
+        } catch (NumberFormatException e) {
+            // handle number format error
+            System.out.println("Invalid version number");
+        }
+
+        return lastFixVersion;
+    }
+
+    public static void writeFixVersion(String filePath, Map<String, Long> lastFixVersion) {
+        try (FileWriter fileWriter = new FileWriter(filePath); BufferedWriter writer = new BufferedWriter(fileWriter)) {
+            for (Map.Entry<String, Long> entry : lastFixVersion.entrySet()) {
+                writer.write(entry.getKey() + "=" + entry.getValue());
+                writer.newLine();
+            }
+        } catch (IOException e) {
+            // handle IO error
+            System.out.println("Error writing to file");
+        }
     }
 }
