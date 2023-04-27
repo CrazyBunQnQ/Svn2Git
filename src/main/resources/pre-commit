@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# 设置Git和SVN仓库路径
-GIT_REPO_PATH="D:/gitProject"
-SVN_REPO_PATH="D:/svnProject"
+# 获取Git仓库路径
+GIT_REPO_PATH=$(git rev-parse --show-toplevel)
+
+# 获取SVN仓库路径
+SVN_REPO_PATH=$(cat "$GIT_REPO_PATH/.svn_path")
 
 # 确保git分支是最新的
 git fetch
