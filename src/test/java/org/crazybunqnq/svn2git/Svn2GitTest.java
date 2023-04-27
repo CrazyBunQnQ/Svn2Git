@@ -65,20 +65,18 @@ public class Svn2GitTest {
             try {
                 startTime = System.currentTimeMillis();
                 updateSvnToRevision("F:\\SvnRepo\\Platform", revision);
-                System.out.println("更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+                System.out.println("svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
                 e.printStackTrace();
                 System.exit(1);
             }
-            System.out.println("更新完成");
             Pattern branchRegx = Pattern.compile(".*/branches/([^/]+).*");
-            System.out.println("开始读取提交记录");
             Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(LOG_FILE_PATH, revision, branchRegx);
             System.out.println("读取完成, 涉及 " + changesByBranch.size() + " 个分支");
             try {
                 startTime = System.currentTimeMillis();
                 copySvnChangesToGit("F:\\SvnRepo\\Platform", "F:\\GitRepo\\Platform", changesByBranch, revision, author, commitMsg);
-                System.out.println("提交 " + revision + " 版本资源总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+                System.out.println("提交 " + revision + " 版本资源到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
                 e.printStackTrace();
                 System.exit(1);
@@ -372,7 +370,6 @@ public class Svn2GitTest {
                 continue;
             }
             boolean isNewBranch = checkoutOrCreateBranch(git, branch);
-            System.out.println("检出分支：" + branch);
 
             long starttime = System.currentTimeMillis();
             if (!isNewBranch) {
@@ -412,14 +409,14 @@ public class Svn2GitTest {
                         }
                     }
                 }
-                System.out.println("修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println(branch + " 分支修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
 
                 starttime = System.currentTimeMillis();
                 git.add().addFilepattern(".").call();
                 git.rm().setCached(true).addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> untracked = status.getUntracked();
-                System.out.println("git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println(branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 if (untracked.size() > 0) {
                     try {
                         sendMail();
@@ -458,13 +455,13 @@ public class Svn2GitTest {
                         // git.add().addFilepattern(".").addFilepattern(file.getName()).call();
                     }
                 }
-                System.out.println("修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println(branch + "分支修改和删除文件耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 starttime = System.currentTimeMillis();
                 git.rm().setCached(true).addFilepattern(".").call();
                 git.add().addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> untracked = status.getUntracked();
-                System.out.println("git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println(branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 try {
                     sendMail();
                 } catch (Exception ignored) {
@@ -491,10 +488,10 @@ public class Svn2GitTest {
      */
     private static boolean checkoutOrCreateBranch(Git git, String branch) throws GitAPIException, IOException {
         String currentBranch = git.getRepository().getBranch();
+        System.out.println("当前分支：" + currentBranch + ", 目标分支：" + branch);
         if (currentBranch.equals(branch)) {
             return false;
         }
-        System.out.println("当前分支：" + currentBranch + ", 目标分支：" + branch);
         try {
             git.checkout().setName(branch).call();
             return false;
