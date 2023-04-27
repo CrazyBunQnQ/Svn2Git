@@ -4,6 +4,18 @@
 GIT_REPO_PATH="D:/gitProject"
 SVN_REPO_PATH="D:/svnProject"
 
+# 确保git分支是最新的
+git fetch
+
+current_branch=$(git branch --show-current)
+local_commit=$(git rev-parse $current_branch)
+remote_commit=$(git rev-parse origin/$current_branch)
+
+if [ "$local_commit" != "$remote_commit" ]; then
+  echo "Your branch is not up-to-date with the remote branch. Please pull the latest changes and try again."
+  exit 1
+fi
+
 # 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
 
