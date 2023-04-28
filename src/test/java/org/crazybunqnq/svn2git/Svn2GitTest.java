@@ -39,7 +39,7 @@ public class Svn2GitTest {
 
     private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
-    private static final long FORCE_FIX_VERSION_INTERVAL = 500;
+    private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
     private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
     private static Map<String, Long> lastFixVersion;
 
@@ -69,8 +69,8 @@ public class Svn2GitTest {
             String author = readAuthorFromLogFile(LOG_FILE_PATH, revision);
             String commitMsg = readMessageFromLogFile(LOG_FILE_PATH, revision);
             System.out.println("开始更新 svn 版本到 " + revision);
+            startTime = System.currentTimeMillis();
             try {
-                startTime = System.currentTimeMillis();
                 updateSvnToRevision(svnRepoPath, revision);
                 System.out.println("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
@@ -81,9 +81,10 @@ public class Svn2GitTest {
             Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(LOG_FILE_PATH, revision, branchRegx);
             System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
-                startTime = System.currentTimeMillis();
+                long gitCommitStartTime = System.currentTimeMillis();
                 copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg);
-                System.out.println("    提交 " + revision + " 版本资源到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+                System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
+                System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
             } catch (Exception e) {
                 e.printStackTrace();
                 System.exit(1);
@@ -439,7 +440,6 @@ public class Svn2GitTest {
                 Set<String> modified = status.getModified();
                 Set<String> removed = status.getRemoved();
                 Set<String> missing = status.getMissing();
-                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 if (missing.size() > 0) {
                     RmCommand rm = git.rm();
                     for (String missingFile : missing) {
@@ -447,6 +447,7 @@ public class Svn2GitTest {
                     }
                     rm.call();
                 }
+                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
                     try {
                         sendMail();
@@ -486,6 +487,10 @@ public class Svn2GitTest {
                         // git.add().addFilepattern(".").addFilepattern(file.getName()).call();
                     }
                 }
+                // 从 master 分支检出 .gitignore 文件
+                if (!"master".equals(branch)) {
+                    git.checkout().addPath(".gitignore").setStartPoint("master").call();
+                }
                 long costtime = (System.currentTimeMillis() - starttime) / 1000;
                 if (costtime > 2L) {
                     System.out.println("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
@@ -498,20 +503,20 @@ public class Svn2GitTest {
                 Set<String> modified = status.getModified();
                 Set<String> removed = status.getRemoved();
                 Set<String> missing = status.getMissing();
-                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
-                try {
-                    sendMail();
-                } catch (Exception ignored) {
-                }
-                if (untracked.size() > 0) {
-                    System.out.println("        untracked: " + untracked);
-                }
                 if (missing.size() > 0) {
                     RmCommand rm = git.rm();
                     for (String missingFile : missing) {
                         rm.addFilepattern(missingFile);
                     }
                     rm.call();
+                }
+                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
+                    try {
+                        sendMail();
+                    } catch (Exception ignored) {
+                    }
+                    System.out.println("        untracked: " + untracked);
                 }
                 // git.commit().setMessage("SVN vision " + version + " new branch fix").call();
                 if ("".equals(commitMsg)) {
