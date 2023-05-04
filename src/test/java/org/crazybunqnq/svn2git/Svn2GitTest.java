@@ -43,7 +43,7 @@ public class Svn2GitTest {
     private static Map<String, Long> lastFixVersion;
     private static final String MODEL_MAP_FILE = "svn_git_map.properties";
     private static Map<String, Map<String, Object>> modelMap = null;
-    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{"master", "DemoCenter"});
+    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector"});
     private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn"});
 
 
@@ -62,6 +62,46 @@ public class Svn2GitTest {
         final String gitRepoPath = "F:\\GitRepo\\Singularity";
         final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
         syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
+    }
+
+    @Test
+    public void syncSvnNextVersion2GitTest() throws IOException {
+        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
+        final String gitRepoPath = "F:\\GitRepo\\Singularity";
+        final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
+        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
+        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
+
+        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
+        Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
+        revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
+        long startTime;
+        String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+        String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+        System.out.println("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
+        startTime = System.currentTimeMillis();
+        try {
+            updateSvnToRevision(svnRepoPath, revision);
+            System.out.println("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+
+
+        startTime = System.currentTimeMillis();
+        Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
+
+        System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
+        try {
+            long gitCommitStartTime = System.currentTimeMillis();
+            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap);
+            System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
+            System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 
     @Test
@@ -169,11 +209,16 @@ public class Svn2GitTest {
                 e.printStackTrace();
                 System.exit(1);
             }
-            Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx);
+            Map<String, List<SVNLogEntryPath>> changesByBranch;
+            if (modelMap == null) {
+                changesByBranch = readChangesByBranchFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx);
+            } else {
+                changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
+            }
             System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
                 long gitCommitStartTime = System.currentTimeMillis();
-                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, null);
+                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap);
                 System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
                 System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
             } catch (Exception e) {
@@ -492,7 +537,11 @@ public class Svn2GitTest {
                                 }
                                 continue;
                             }
-                        } else {
+                        } else if (!MODEL_BLACKLIST.contains(model)) {
+                            File file = Paths.get(svnRepoPath, model).toFile();
+                            if (!file.isDirectory()) {
+                                continue;
+                            }
                             try {
                                 sendMail("Svn2Git", "发现新模块: " + model + "\n及时确认是否需要添加映射");
                             } catch (Exception ignored) {
@@ -596,6 +645,10 @@ public class Svn2GitTest {
                             regxStr = (String) modelMap.get(model).get("str");
                             if (regxStr.startsWith("new:")) {
                                 // TODO
+                                try {
+                                    sendMail("Svn2Git", svnRepoPath + " " + version + " 版本出现独立模块");
+                                } catch (Exception ignored) {
+                                }
                                 System.out.println("独立模块");
                                 continue;
                             } else {
@@ -706,6 +759,10 @@ public class Svn2GitTest {
                                 String regxStr = (String) regxMap.get("str");
                                 if (regxStr.startsWith("new:")) {
                                     // TODO 同步独立模块
+                                    try {
+                                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本出现独立模块");
+                                    } catch (Exception ignored) {
+                                    }
                                     System.out.println("        独立模块: " + fileName);
                                 } else {
                                     String realModelName = getRealModelName(fileName, new File(file.getAbsolutePath() + File.separator + branch));
