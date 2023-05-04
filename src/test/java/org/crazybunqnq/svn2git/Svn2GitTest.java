@@ -95,7 +95,7 @@ public class Svn2GitTest {
         System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
         try {
             long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap);
+            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
             System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
             System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
         } catch (Exception e) {
@@ -173,7 +173,7 @@ public class Svn2GitTest {
         System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
         try {
             long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap);
+            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
             System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
             System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
         } catch (Exception e) {
@@ -218,7 +218,7 @@ public class Svn2GitTest {
             System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
                 long gitCommitStartTime = System.currentTimeMillis();
-                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap);
+                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
                 System.out.println("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
                 System.out.println("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
             } catch (Exception e) {
@@ -529,9 +529,6 @@ public class Svn2GitTest {
                                 File[] modelBranchDirs = modelDir.listFiles();
                                 for (File modelBranchDir : modelBranchDirs) {
                                     branch = modelBranchDir.getName();
-                                    if (regxStr.startsWith("new:")) {
-                                        branch = model + ":" + branch;
-                                    }
 
                                     String realModelName = getRealModelName(model, modelBranchDir);
                                     if (realModelName == null) {
@@ -539,6 +536,9 @@ public class Svn2GitTest {
                                     }
                                     String realModelPath = entryPath.getPath().substring(0, entryPath.getPath().indexOf(model) + model.length()) + "/" + branch + "/" + realModelName;
                                     SVNLogEntryPath newEntryPath = new SVNLogEntryPath(realModelPath, line.charAt(0), null, revision);
+                                    if (regxStr.startsWith("new:")) {
+                                        branch = model + ":" + branch;
+                                    }
                                     if (!changesByBranch.containsKey(branch)) {
                                         if (regxStr.startsWith("new:")) {
                                             System.out.println("涉及独立模块 " + model + " 分支: " + branch);
@@ -604,7 +604,7 @@ public class Svn2GitTest {
      * @throws IOException
      * @throws GitAPIException
      */
-    private static void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Map<String, Map<String, Object>> modelMap) throws IOException, GitAPIException {
+    private static void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
         Git git = Git.open(new File(gitRepoPath));
         // 设置提交用户
         StoredConfig config = git.getRepository().getConfig();
@@ -621,8 +621,22 @@ public class Svn2GitTest {
                     continue;
                 }
             }
-            // TODO 暂时跳过 branch == null
-            if (branch == null) {
+            // 独立模块的分支单独处理
+            if (branch.contains(":")) {
+                String[] tmp = branch.split(":");
+                String tmpModel = tmp[0];
+                String tmpBranch = tmp[1];
+                Map<String, Map<String, Object>> tmpModelMap = new HashMap<>(1);
+                Map<String, Object> tmpMap = new HashMap<>(2);
+                String tmpStr = (String) modelMap.get(tmpModel).get("str");
+                tmpMap.put("str", tmpStr.substring(tmpStr.indexOf(":") + 1));
+                tmpMap.put("regx", modelMap.get(tmpModel).get("regx"));
+                tmpModelMap.put(tmpModel, tmpMap);
+                Map<String, List<SVNLogEntryPath>> subChangesByBranch = new HashMap<>(1);
+                subChangesByBranch.put(tmpBranch, changesByBranch.get(branch));
+                copySvnChangesToGit(svnRepoPath + File.separator + tmpModel,
+                        gitRepoPath.replace(gitRepoName, tmpModel),
+                        subChangesByBranch, version, author, commitMsg, tmpModelMap, false);
                 continue;
             }
             boolean isNewBranch = checkoutOrCreateBranch(git, branch);
@@ -630,6 +644,10 @@ public class Svn2GitTest {
             long lastVersion = lastFixVersion != null && lastFixVersion.containsKey(branch) ? lastFixVersion.get(branch) : 0;
             if (!isNewBranch && version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
                 System.out.println("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
+                isNewBranch = true;
+            }
+            if (!isNewBranch && !hasModel) {
+                System.out.println("    模块 " + gitRepoName + " 强制全量提交");
                 isNewBranch = true;
             }
 
@@ -772,33 +790,45 @@ public class Svn2GitTest {
                             }
                             copyFile(file, new File(gitRepoPath + File.separator + fileName));
                         } else {
-                            if (modelMap.containsKey(fileName)) {
-                                Map<String, Object> regxMap = modelMap.get(fileName);
+                            String modelName = hasModel ? fileName : modelMap.keySet().stream().findFirst().get();
+                            if (modelMap.containsKey(modelName)) {
+                                Map<String, Object> regxMap = modelMap.get(modelName);
                                 String regxStr = (String) regxMap.get("str");
-                                if (regxStr.startsWith("new:")) {
-                                    // TODO 同步独立模块
-                                    try {
-                                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本出现独立模块");
-                                    } catch (Exception ignored) {
+                                // 独立模块分支也独立，不受影响
+                                if (!regxStr.startsWith("new:")) {
+                                    String realModelName;
+                                    if (hasModel) {
+                                        realModelName = getRealModelName(modelName, new File(file.getAbsolutePath() + File.separator + branch));
+                                    } else {
+                                        realModelName = getRealModelName(modelName, new File(file.getAbsolutePath()));
                                     }
-                                    System.out.println("        独立模块: " + fileName);
-                                } else {
-                                    String realModelName = getRealModelName(fileName, new File(file.getAbsolutePath() + File.separator + branch));
                                     if (realModelName == null) {
                                         continue;
                                     }
-                                    file = new File(file.getAbsolutePath() + File.separator + branch + File.separator + realModelName);
-                                    if (file.isDirectory()) {
-                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + fileName);
+                                    if (hasModel) {
+                                        file = new File(file.getAbsolutePath() + File.separator + branch + File.separator + realModelName);
+                                    } else {
+                                        file = new File(file.getAbsolutePath() + File.separator + realModelName);
                                     }
-                                    copyFile(file, new File(gitRepoPath + File.separator + fileName));
+                                    if (file.isDirectory()) {
+                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
+                                    }
+                                    if (hasModel) {
+                                        copyFile(file, new File(gitRepoPath + File.separator + modelName));
+                                    } else {
+                                        copyFile(file, new File(gitRepoPath));
+                                    }
                                 }
                             } else if (file.isDirectory()) {
                                 // TODO 未知模块
-                                System.out.println("        未知模块: " + fileName);
+                                System.out.println("        未知模块: " + modelName);
+                            } else if (hasModel){
+                                System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
+                                copyFile(file, new File(gitRepoPath + File.separator + modelName));
                             } else {
-                                System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + fileName);
-                                copyFile(file, new File(gitRepoPath + File.separator + fileName));
+                                String realModelName = getRealModelName(modelName, new File(file.getAbsolutePath()));
+                                file = new File(file.getAbsolutePath() + File.separator + realModelName);
+                                System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath);
                             }
                         }
                     }
