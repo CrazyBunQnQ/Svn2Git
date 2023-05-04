@@ -49,9 +49,15 @@ public class Svn2GitTest {
     }
 
     @Test
-    public void getSvnCommitLogTest() throws SVNException, IOException {
+    public void syncSvnCommitTest() throws SVNException, IOException {
+        // final String svnRepoPath = "F:\\SvnRepo\\Platform";
+        // final String gitRepoPath = "F:\\GitRepo\\Platform";
         final String svnRepoPath = "F:\\SvnRepo\\Platform";
         final String gitRepoPath = "F:\\GitRepo\\Platform";
+        syncSvnCommit2Git(svnRepoPath, gitRepoPath);
+    }
+
+    public void syncSvnCommit2Git(String svnRepoPath, String gitRepoPath) throws SVNException, IOException {
         lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
         // 1. 获取 svn 仓库
         SVNRepository repository = setupSvnRepository(SVN_URL, USERNAME, PASSWORD);
@@ -60,14 +66,14 @@ public class Svn2GitTest {
         // 3. 合并连续的提交记录
         List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
         // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, LOG_FILE_PATH);
-        long revision = readRevisionFromLogFile(LOG_FILE_PATH, null);
+        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath + File.separator + LOG_FILE_PATH);
+        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
         long startTime;
         while (revision > 0) {
             Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
-            revision = readRevisionFromLogFile(LOG_FILE_PATH, curSvnVersionInGit);
-            String author = readAuthorFromLogFile(LOG_FILE_PATH, revision);
-            String commitMsg = readMessageFromLogFile(LOG_FILE_PATH, revision);
+            revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
+            String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+            String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             System.out.println("开始更新 svn 版本到 " + revision);
             startTime = System.currentTimeMillis();
             try {
@@ -78,7 +84,7 @@ public class Svn2GitTest {
                 System.exit(1);
             }
             Pattern branchRegx = Pattern.compile(".*/branches/([^/]+).*");
-            Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(LOG_FILE_PATH, revision, branchRegx);
+            Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision, branchRegx);
             System.out.println("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
                 long gitCommitStartTime = System.currentTimeMillis();
@@ -381,7 +387,7 @@ public class Svn2GitTest {
             boolean isNewBranch = checkoutOrCreateBranch(git, branch);
 
             long lastVersion = lastFixVersion.containsKey(branch) ? lastFixVersion.get(branch) : 0;
-            if (version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
+            if (!isNewBranch && version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
                 System.out.println("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
                 isNewBranch = true;
             }
@@ -552,6 +558,7 @@ public class Svn2GitTest {
                 sendMail();
             } catch (Exception ignored) {
             }
+            System.out.println("    创建新分支：" + branch);
             // git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
             git.checkout().setCreateBranch(true).setName(branch).call();
             return true;
