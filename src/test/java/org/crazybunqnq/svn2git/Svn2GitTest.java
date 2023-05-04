@@ -501,13 +501,24 @@ public class Svn2GitTest {
                             String regxStr = (String) regxMap.get("str");
                             Pattern branchRegx = (Pattern) regxMap.get("regx");
                             Matcher matcher = branchRegx.matcher(line);
-                            // TODO 独立模块在提交时再说
-                            if (!regxStr.startsWith("new:") && matcher.find()) {
-                                branch = matcher.group(1);
-                                if (!changesByBranch.containsKey(branch)) {
-                                    System.out.println("涉及分支: " + branch);
+                            // 独立模块在提交时再说
+                            if (!regxStr.contains("(") || (regxStr.contains("(") && matcher.find())) {
+                                if (!regxStr.contains("(")) {
+                                    branch = "dev";
+                                } else {
+                                    branch = matcher.group(1);
                                 }
-                            } else if (!regxStr.startsWith("new:")) {
+                                if (regxStr.startsWith("new:")) {
+                                    branch = model + ":" + branch;
+                                }
+                                if (!changesByBranch.containsKey(branch)) {
+                                    if (regxStr.startsWith("new:")) {
+                                        System.out.println("涉及独立模块 " + model + " 分支: " + branch);
+                                    } else {
+                                        System.out.println("涉及分支: " + branch);
+                                    }
+                                }
+                            } else {
                                 // 只可能是模块或分支目录，排除删除类型
                                 if (line.charAt(0) == 'D') {
                                     continue;
@@ -518,6 +529,9 @@ public class Svn2GitTest {
                                 File[] modelBranchDirs = modelDir.listFiles();
                                 for (File modelBranchDir : modelBranchDirs) {
                                     branch = modelBranchDir.getName();
+                                    if (regxStr.startsWith("new:")) {
+                                        branch = model + ":" + branch;
+                                    }
 
                                     String realModelName = getRealModelName(model, modelBranchDir);
                                     if (realModelName == null) {
@@ -526,7 +540,11 @@ public class Svn2GitTest {
                                     String realModelPath = entryPath.getPath().substring(0, entryPath.getPath().indexOf(model) + model.length()) + "/" + branch + "/" + realModelName;
                                     SVNLogEntryPath newEntryPath = new SVNLogEntryPath(realModelPath, line.charAt(0), null, revision);
                                     if (!changesByBranch.containsKey(branch)) {
-                                        System.out.println("涉及分支: " + branch);
+                                        if (regxStr.startsWith("new:")) {
+                                            System.out.println("涉及独立模块 " + model + " 分支: " + branch);
+                                        } else {
+                                            System.out.println("涉及分支: " + branch);
+                                        }
                                     }
                                     // changesByBranch.computeIfAbsent(branch, k -> new ArrayList<>()).add(newEntryPath);
                                     changesByBranch.computeIfAbsent(branch, k -> new ArrayList<>());
