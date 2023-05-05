@@ -665,7 +665,7 @@ public class Svn2GitTest {
                     String model = null;
                     String realModelName;
                     // 分支之后的路径
-                    String branchPath = path.substring(path.indexOf(branch));
+                    String branchPath = "dev".equals(branch)? path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1) :path.substring(path.indexOf(branch));
                     String contentPath = null;
                     Path targetPath = null;
                     String regxStr = null;
@@ -692,15 +692,15 @@ public class Svn2GitTest {
                                 System.out.println("独立模块");
                                 continue;
                             } else {
-                                realModelName = getRealModelName(model, new File(svnRepoPath + File.separator + model + File.separator + branch));
+                                realModelName = regxStr.contains("(") ? getRealModelName(model, new File(svnRepoPath + File.separator + model + File.separator + branch)) : model;
                                 if (realModelName == null) {
                                     continue;
                                 }
                                 // 跳过分支根目录
-                                if (branchPath.length() == branch.length() + realModelName.length() + 1) {
+                                if (branchPath.length() == branch.length() + realModelName.length() + 1 || (!regxStr.contains("(") && branchPath.equalsIgnoreCase(realModelName))) {
                                     continue;
                                 }
-                                contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 1);
+                                contentPath = regxStr.contains("(") ? branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length()) : branchPath.substring(realModelName.length() + 1);
                                 targetPath = Paths.get(gitRepoPath, model, contentPath);
                             }
                         }
@@ -708,7 +708,7 @@ public class Svn2GitTest {
 
                     File targetFile = targetPath.toFile();
                     if (change.getType() == SVNLogEntryPath.TYPE_ADDED || change.getType() == SVNLogEntryPath.TYPE_MODIFIED) {
-                        Path sourcePath = model == null ? Paths.get(svnRepoPath, branchPath) : Paths.get(svnRepoPath, model, branchPath);
+                        Path sourcePath = model == null || (regxStr != null && !regxStr.contains("(")) ? Paths.get(svnRepoPath, branchPath) : Paths.get(svnRepoPath, model, branchPath);
                         File sourceFile = sourcePath.toFile();
                         if (!sourceFile.exists()) {
                             System.out.println("        Source file not exist or source file is directory: " + sourceFile.getAbsolutePath());
