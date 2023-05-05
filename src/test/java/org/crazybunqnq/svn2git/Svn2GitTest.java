@@ -43,8 +43,9 @@ public class Svn2GitTest {
     private static Map<String, Long> lastFixVersion;
     private static final String MODEL_MAP_FILE = "svn_git_map.properties";
     private static Map<String, Map<String, Object>> modelMap = null;
-    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector"});
+    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner"});
     private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn"});
+    private Set<String> newModel = new HashSet<>(20);
 
 
     static {
@@ -513,9 +514,9 @@ public class Svn2GitTest {
                                 }
                                 if (!changesByBranch.containsKey(branch)) {
                                     if (regxStr.startsWith("new:")) {
-                                        System.out.println("涉及独立模块 " + model + " 分支: " + branch);
+                                        System.out.println("    涉及独立模块 " + model + " 分支: " + branch);
                                     } else {
-                                        System.out.println("涉及分支: " + branch);
+                                        System.out.println("    涉及分支: " + branch);
                                     }
                                 }
                             } else {
@@ -560,12 +561,15 @@ public class Svn2GitTest {
                             if (!file.isDirectory()) {
                                 continue;
                             }
-                            try {
-                                sendMail("Svn2Git", "发现新模块: " + model + "\n及时确认是否需要添加映射");
-                            } catch (Exception ignored) {
+                            if (!newModel.contains(model)) {
+                                newModel.add(model);
+                                try {
+                                    sendMail("Svn2Git", "发现新模块: " + model + "\n及时确认是否需要添加映射");
+                                } catch (Exception ignored) {
+                                }
+                                // 添加映射
+                                System.out.println("    发现新模块: " + model);
                             }
-                            // TODO 添加映射
-                            System.out.println("发现新模块: " + model);
                             continue;
                         }
                         // changesByBranch.computeIfAbsent(branch, k -> new ArrayList<>()).add(entryPath);
@@ -770,8 +774,26 @@ public class Svn2GitTest {
                     for (File file : files) {
                         String fileName = file.getName();
                         if (!DELETE_WITELIST.contains(fileName)) {
-                            System.out.println("        删除目录: " + file.getAbsolutePath());
-                            rmDirs(file);
+                            if (modelMap == null) {
+                                System.out.println("        删除目录: " + file.getAbsolutePath());
+                                rmDirs(file);
+                            } else {
+                                String regxStr = null;
+                                if (modelMap.containsKey(fileName)) {
+                                    Map<String, Object> regxMap = modelMap.get(fileName);
+                                    regxStr = (String) regxMap.get("str");
+                                }
+                                // 只删除当前分支相关的
+                                File svnFile = new File(svnRepoPath + File.separator + fileName);
+                                if (svnFile == null || !svnFile.isDirectory()) {
+                                    continue;
+                                }
+                                List<String> branchs = Arrays.asList(svnFile.list());
+                                if (branchs.contains(branch) || (regxStr != null && !regxStr.contains("("))) {
+                                    System.out.println("        删除目录: " + file.getAbsolutePath());
+                                    rmDirs(file);
+                                }
+                            }
                         }
                     }
                 }
@@ -798,7 +820,7 @@ public class Svn2GitTest {
                                 if (!regxStr.startsWith("new:")) {
                                     String realModelName;
                                     if (hasModel) {
-                                        realModelName = getRealModelName(modelName, new File(file.getAbsolutePath() + File.separator + branch));
+                                        realModelName = regxStr.contains("(") ? getRealModelName(modelName, new File(file.getAbsolutePath() + File.separator + branch)) : fileName;
                                     } else {
                                         realModelName = getRealModelName(modelName, new File(file.getAbsolutePath()));
                                     }
@@ -806,12 +828,15 @@ public class Svn2GitTest {
                                         continue;
                                     }
                                     if (hasModel) {
-                                        file = new File(file.getAbsolutePath() + File.separator + branch + File.separator + realModelName);
+                                        file = regxStr.contains("(") ? new File(file.getAbsolutePath() + File.separator + branch + File.separator + realModelName) : file;
                                     } else {
                                         file = new File(file.getAbsolutePath() + File.separator + realModelName);
                                     }
+                                    if (!file.exists()) {
+                                        continue;
+                                    }
                                     if (file.isDirectory()) {
-                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
+                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + (hasModel ? gitRepoPath + File.separator + modelName : gitRepoPath));
                                     }
                                     if (hasModel) {
                                         copyFile(file, new File(gitRepoPath + File.separator + modelName));
