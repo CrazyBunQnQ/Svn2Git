@@ -43,8 +43,9 @@ public class Svn2GitTest {
     private static Map<String, Long> lastFixVersion;
     private static final String MODEL_MAP_FILE = "svn_git_map.properties";
     private static Map<String, Map<String, Object>> modelMap = null;
-    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner"});
-    private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn"});
+    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata"});
+    private static final List<String> BRANCH_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", "Common", "transceiver"});
+    private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata"});
     private Set<String> newModel = new HashSet<>(20);
 
 
@@ -509,6 +510,14 @@ public class Svn2GitTest {
                                 } else {
                                     branch = matcher.group(1);
                                 }
+                                File branchFile = "dev".equals(branch) ? Paths.get(svnRepoPath, model).toFile() : Paths.get(svnRepoPath, model, branch).toFile();
+                                if (!branchFile.exists() || branchFile.isFile()) {
+                                    continue;
+                                }
+                                if (BRANCH_BLACKLIST.contains(branch)) {
+                                    System.out.println("    涉及分支: " + branch + " 已被忽略");
+                                    continue;
+                                }
                                 if (regxStr.startsWith("new:")) {
                                     branch = model + ":" + branch;
                                 }
@@ -619,6 +628,9 @@ public class Svn2GitTest {
 
         for (String branch : sortedBranches) {
             String gitRepoName = gitRepoPath.substring(gitRepoPath.lastIndexOf(File.separator) + 1);
+            if (branch.startsWith(".")) {
+                continue;
+            }
             if ("master".equals(branch) || (!branch.toLowerCase().startsWith(gitRepoName.toLowerCase() + "_") && !BRANCH_WITELIST.contains(branch))) {
                 if (modelMap == null) {
                     System.out.println("    跳过分支：" + branch);
@@ -665,7 +677,7 @@ public class Svn2GitTest {
                     String model = null;
                     String realModelName;
                     // 分支之后的路径
-                    String branchPath = "dev".equals(branch)? path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1) :path.substring(path.indexOf(branch));
+                    String branchPath = "dev".equals(branch) ? path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1) : path.substring(path.indexOf(branch));
                     String contentPath = null;
                     Path targetPath = null;
                     String regxStr = null;
@@ -700,7 +712,7 @@ public class Svn2GitTest {
                                 if (branchPath.length() == branch.length() + realModelName.length() + 1 || (!regxStr.contains("(") && branchPath.equalsIgnoreCase(realModelName))) {
                                     continue;
                                 }
-                                contentPath = regxStr.contains("(") ? branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length()) : branchPath.substring(realModelName.length() + 1);
+                                contentPath = regxStr.contains("(") ? branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 2) : branchPath.substring(realModelName.length() + 1);
                                 targetPath = Paths.get(gitRepoPath, model, contentPath);
                             }
                         }
@@ -731,7 +743,12 @@ public class Svn2GitTest {
                 }
                 // 从 master 分支检出 .gitignore 文件
                 if (!"master".equals(branch)) {
-                    git.checkout().addPath(".gitignore").setStartPoint("master").call();
+                    git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
+                    try {
+                        git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
+                    } catch (Exception ignored) {
+                        ignored.printStackTrace();
+                    }
                 }
                 long costtime = (System.currentTimeMillis() - starttime) / 1000;
                 if (costtime > 2L) {
@@ -779,12 +796,16 @@ public class Svn2GitTest {
                                 rmDirs(file);
                             } else {
                                 String regxStr = null;
+                                File svnFile = new File(svnRepoPath + File.separator + fileName);
                                 if (modelMap.containsKey(fileName)) {
                                     Map<String, Object> regxMap = modelMap.get(fileName);
                                     regxStr = (String) regxMap.get("str");
+                                } else if (modelMap.containsKey(gitRepoName)) {
+                                    Map<String, Object> regxMap = modelMap.get(gitRepoName);
+                                    regxStr = (String) regxMap.get("str");
+                                    svnFile = new File(svnRepoPath);
                                 }
                                 // 只删除当前分支相关的
-                                File svnFile = new File(svnRepoPath + File.separator + fileName);
                                 if (svnFile == null || !svnFile.isDirectory()) {
                                     continue;
                                 }
@@ -807,10 +828,14 @@ public class Svn2GitTest {
                             continue;
                         }
                         if (modelMap == null) {
+                            String targetPath = gitRepoPath + File.separator + fileName;
                             if (file.isDirectory()) {
-                                System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + fileName);
+                                System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + targetPath);
+                                // if (targetPath.toString().contains("\\r\\")) {
+                                //     System.out.println("路径异常2");
+                                // }
                             }
-                            copyFile(file, new File(gitRepoPath + File.separator + fileName));
+                            copyFile(file, new File(targetPath));
                         } else {
                             String modelName = hasModel ? fileName : modelMap.keySet().stream().findFirst().get();
                             if (modelMap.containsKey(modelName)) {
@@ -821,6 +846,12 @@ public class Svn2GitTest {
                                     String realModelName;
                                     if (hasModel) {
                                         realModelName = regxStr.contains("(") ? getRealModelName(modelName, new File(file.getAbsolutePath() + File.separator + branch)) : fileName;
+                                    } else if (regxStr.endsWith(")")) {
+                                        if (!fileName.equals(branch)) {
+                                            System.out.println("        " + fileName + " 非当前分支 " + branch);
+                                            continue;
+                                        }
+                                        realModelName = modelName;
                                     } else {
                                         realModelName = getRealModelName(modelName, new File(file.getAbsolutePath()));
                                     }
@@ -830,24 +861,30 @@ public class Svn2GitTest {
                                     if (hasModel) {
                                         file = regxStr.contains("(") ? new File(file.getAbsolutePath() + File.separator + branch + File.separator + realModelName) : file;
                                     } else {
-                                        file = new File(file.getAbsolutePath() + File.separator + realModelName);
+                                        file = regxStr.endsWith(")") ? file : new File(file.getAbsolutePath() + File.separator + realModelName);
                                     }
                                     if (!file.exists()) {
                                         continue;
                                     }
+                                    String targetPath = hasModel ? gitRepoPath + File.separator + modelName : gitRepoPath;
                                     if (file.isDirectory()) {
-                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + (hasModel ? gitRepoPath + File.separator + modelName : gitRepoPath));
+                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + targetPath);
+                                        // if (targetPath.contains("\\r\\")) {
+                                        //     System.out.println("路径异常3");
+                                        // }
                                     }
-                                    if (hasModel) {
-                                        copyFile(file, new File(gitRepoPath + File.separator + modelName));
-                                    } else {
-                                        copyFile(file, new File(gitRepoPath));
-                                    }
+                                    copyFile(file, new File(targetPath));
                                 }
                             } else if (file.isDirectory()) {
-                                // TODO 未知模块
-                                System.out.println("        未知模块: " + modelName);
-                            } else if (hasModel){
+                                // 未知模块
+                                if (!MODEL_BLACKLIST.contains(modelName)) {
+                                    try {
+                                        sendMail("Svn2Git", "未知模块: " + modelName + "\n及时确认是否需要添加映射");
+                                    } catch (Exception ignored) {
+                                    }
+                                    System.out.println("        未知模块: " + modelName);
+                                }
+                            } else if (hasModel) {
                                 System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
                                 copyFile(file, new File(gitRepoPath + File.separator + modelName));
                             } else {
