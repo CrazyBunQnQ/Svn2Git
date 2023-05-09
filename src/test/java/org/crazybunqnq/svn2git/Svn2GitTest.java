@@ -120,7 +120,7 @@ public class Svn2GitTest {
         // 3. 合并连续的提交记录
         List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
         // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath + File.separator + LOG_FILE_PATH);
+        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
     }
 
     @Test
@@ -194,7 +194,7 @@ public class Svn2GitTest {
         // 3. 合并连续的提交记录
         List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
         // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath + File.separator + LOG_FILE_PATH);
+        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
         long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
         long startTime;
         while (revision > 0) {
@@ -290,11 +290,13 @@ public class Svn2GitTest {
      * 将 svn 提交记录写入文件
      *
      * @param logEntries
-     * @param filePath
+     * @param gitRepoPath
      * @throws IOException
      */
-    private void writeSvnLogEntriesToFile(List<MergedSVNLogEntry> logEntries, String filePath) throws IOException {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+    private void writeSvnLogEntriesToFile(List<MergedSVNLogEntry> logEntries, String gitRepoPath) throws IOException {
+        String logFilePath = gitRepoPath + File.separator + LOG_FILE_PATH;
+        String gitRepoName = gitRepoPath.substring(gitRepoPath.lastIndexOf(File.separator) + 1);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFilePath))) {
             for (MergedSVNLogEntry logEntry : logEntries) {
                 writer.write("Revision: " + logEntry.getRevision() + "\n");
                 writer.write("Author: " + logEntry.getAuthor() + "\n");
@@ -510,7 +512,12 @@ public class Svn2GitTest {
                                 } else {
                                     branch = matcher.group(1);
                                 }
-                                File branchFile = "dev".equals(branch) ? Paths.get(svnRepoPath, model).toFile() : Paths.get(svnRepoPath, model, branch).toFile();
+                                File branchFile;
+                                if ("dev".equals(branch) && !regxStr.contains("(")) {
+                                    branchFile = Paths.get(svnRepoPath, model).toFile();
+                                } else {
+                                    branchFile = Paths.get(svnRepoPath, model, branch).toFile();
+                                }
                                 if (!branchFile.exists() || branchFile.isFile()) {
                                     continue;
                                 }
@@ -677,14 +684,20 @@ public class Svn2GitTest {
                     String model = null;
                     String realModelName;
                     // 分支之后的路径
-                    String branchPath = "dev".equals(branch) ? path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1) : path.substring(path.indexOf(branch));
+                    String branchPath;
+                    if ("dev".equals(branch)) {
+                        branchPath = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
+                    } else {
+                        branchPath = path.substring(path.indexOf(branch));
+                    }
                     String contentPath = null;
                     Path targetPath = null;
                     String regxStr = null;
                     if (modelMap == null) {
                         // 跳过分支根目录
                         if (branchPath.length() == branch.length()) {
-                            continue;
+                            System.out.println("暂不跳过");
+                            // continue;
                         }
                         contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + 1);
                         targetPath = Paths.get(gitRepoPath, contentPath);
@@ -704,15 +717,25 @@ public class Svn2GitTest {
                                 System.out.println("独立模块");
                                 continue;
                             } else {
+                                if ("dev".equals(branch) && !regxStr.contains("(")) {
+                                    branchPath = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
+                                } else {
+                                    branchPath = path.substring(path.indexOf(branch));
+                                }
                                 realModelName = regxStr.contains("(") ? getRealModelName(model, new File(svnRepoPath + File.separator + model + File.separator + branch)) : model;
                                 if (realModelName == null) {
                                     continue;
                                 }
                                 // 跳过分支根目录
                                 if (branchPath.length() == branch.length() + realModelName.length() + 1 || (!regxStr.contains("(") && branchPath.equalsIgnoreCase(realModelName))) {
-                                    continue;
+                                    System.out.println("暂不跳过");
+                                    // continue;
                                 }
-                                contentPath = regxStr.contains("(") ? branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 2) : branchPath.substring(realModelName.length() + 1);
+                                if (regxStr.contains("(")) {
+                                    contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 1);
+                                } else {
+                                    contentPath = branchPath.substring(realModelName.length() + 1);
+                                }
                                 targetPath = Paths.get(gitRepoPath, model, contentPath);
                             }
                         }
@@ -728,14 +751,14 @@ public class Svn2GitTest {
                         }
                         Files.createDirectories(targetPath.getParent());
                         if (sourceFile.isDirectory()) {
-                            System.out.println("        复制目录: " + sourcePath + " -> " + targetPath);
+                            System.out.println("        复制目录1: " + sourcePath + " -> " + targetPath);
                         }
                         Files.createDirectories(targetPath.getParent());
                         copyFile(sourceFile, targetFile);
                     } else if (change.getType() == SVNLogEntryPath.TYPE_DELETED) {
                         if (targetFile.exists()) {
                             if (targetFile.isDirectory()) {
-                                System.out.println("        删除目录: " + targetPath);
+                                System.out.println("        删除目录1: " + targetPath);
                             }
                             rmDirs(targetFile);
                         }
@@ -758,6 +781,7 @@ public class Svn2GitTest {
                 git.add().addFilepattern(".").call();
                 git.rm().setCached(true).addFilepattern(".").call();
                 Status status = git.status().call();
+                Set<String> uncommittedChanges = status.getUncommittedChanges();
                 Set<String> untracked = status.getUntracked();
                 Set<String> modified = status.getModified();
                 Set<String> removed = status.getRemoved();
@@ -769,7 +793,7 @@ public class Svn2GitTest {
                     }
                     rm.call();
                 }
-                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println("        " + branch + " 分支 git add . 耗时1：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
                     try {
                         sendMail("Svn2Git", svnRepoPath + " " + version + " 版本存在未跟踪文件");
@@ -777,10 +801,12 @@ public class Svn2GitTest {
                     }
                     System.out.println("        untracked: " + untracked);
                 }
-                if ("".equals(commitMsg)) {
-                    git.commit().setMessage("SVN vision " + version).call();
-                } else {
-                    git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                if (uncommittedChanges.size() > 0) {
+                    if ("".equals(commitMsg)) {
+                        git.commit().setMessage("SVN vision " + version).call();
+                    } else {
+                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                    }
                 }
             } else {
                 // 修正新分支内容
@@ -792,7 +818,7 @@ public class Svn2GitTest {
                         String fileName = file.getName();
                         if (!DELETE_WITELIST.contains(fileName)) {
                             if (modelMap == null) {
-                                System.out.println("        删除目录: " + file.getAbsolutePath());
+                                System.out.println("        删除目录2: " + file.getAbsolutePath());
                                 rmDirs(file);
                             } else {
                                 String regxStr = null;
@@ -811,7 +837,7 @@ public class Svn2GitTest {
                                 }
                                 List<String> branchs = Arrays.asList(svnFile.list());
                                 if (branchs.contains(branch) || (regxStr != null && !regxStr.contains("("))) {
-                                    System.out.println("        删除目录: " + file.getAbsolutePath());
+                                    System.out.println("        删除目录3: " + file.getAbsolutePath());
                                     rmDirs(file);
                                 }
                             }
@@ -830,10 +856,7 @@ public class Svn2GitTest {
                         if (modelMap == null) {
                             String targetPath = gitRepoPath + File.separator + fileName;
                             if (file.isDirectory()) {
-                                System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + targetPath);
-                                // if (targetPath.toString().contains("\\r\\")) {
-                                //     System.out.println("路径异常2");
-                                // }
+                                System.out.println("        复制目录2: " + file.getAbsolutePath() + " -> " + targetPath);
                             }
                             copyFile(file, new File(targetPath));
                         } else {
@@ -868,10 +891,7 @@ public class Svn2GitTest {
                                     }
                                     String targetPath = hasModel ? gitRepoPath + File.separator + modelName : gitRepoPath;
                                     if (file.isDirectory()) {
-                                        System.out.println("        复制目录: " + file.getAbsolutePath() + " -> " + targetPath);
-                                        // if (targetPath.contains("\\r\\")) {
-                                        //     System.out.println("路径异常3");
-                                        // }
+                                        System.out.println("        复制目录3: " + file.getAbsolutePath() + " -> " + targetPath);
                                     }
                                     copyFile(file, new File(targetPath));
                                 }
@@ -907,6 +927,7 @@ public class Svn2GitTest {
                 git.rm().setCached(true).addFilepattern(".").call();
                 git.add().addFilepattern(".").call();
                 Status status = git.status().call();
+                Set<String> uncommittedChanges = status.getUncommittedChanges();
                 Set<String> untracked = status.getUntracked();
                 Set<String> modified = status.getModified();
                 Set<String> removed = status.getRemoved();
@@ -918,7 +939,7 @@ public class Svn2GitTest {
                     }
                     rm.call();
                 }
-                System.out.println("        " + branch + " 分支 git add . 耗时：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
+                System.out.println("        " + branch + " 分支 git add . 耗时2：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
                 if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
                     try {
                         sendMail("Svn2Git", svnRepoPath + " " + version + " 版本存在未跟踪文件");
@@ -926,11 +947,12 @@ public class Svn2GitTest {
                     }
                     System.out.println("        untracked: " + untracked);
                 }
-                // git.commit().setMessage("SVN vision " + version + " new branch fix").call();
-                if ("".equals(commitMsg)) {
-                    git.commit().setMessage("SVN vision " + version).call();
-                } else {
-                    git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                if (uncommittedChanges.size() > 0) {
+                    if ("".equals(commitMsg)) {
+                        git.commit().setMessage("SVN vision " + version).call();
+                    } else {
+                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                    }
                 }
                 lastFixVersion.put(branch, version);
                 writeFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE, lastFixVersion);
