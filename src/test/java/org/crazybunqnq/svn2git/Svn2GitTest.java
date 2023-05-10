@@ -231,6 +231,7 @@ public class Svn2GitTest {
                 e.printStackTrace();
                 System.exit(1);
             }
+            modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
         }
     }
 
@@ -698,6 +699,18 @@ public class Svn2GitTest {
                 isNewBranch = true;
             }
 
+            // 从 master 分支检出 .gitignore 文件
+            if (!"master".equals(branch)) {
+                git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
+                try {
+                    git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
+                    if (modelMap != null && hasModel) {
+                        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
+                    }
+                } catch (Exception ignored) {
+                    ignored.printStackTrace();
+                }
+            }
             long starttime = System.currentTimeMillis();
             if (!isNewBranch) {
                 List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
@@ -825,15 +838,6 @@ public class Svn2GitTest {
                             }
                             rmDirs(targetFile);
                         }
-                    }
-                }
-                // 从 master 分支检出 .gitignore 文件
-                if (!"master".equals(branch)) {
-                    git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
-                    try {
-                        git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
-                    } catch (Exception ignored) {
-                        ignored.printStackTrace();
                     }
                 }
                 long costtime = (System.currentTimeMillis() - starttime) / 1000;
@@ -976,10 +980,6 @@ public class Svn2GitTest {
                             }
                         }
                     }
-                }
-                // 从 master 分支检出 .gitignore 文件
-                if (!"master".equals(branch)) {
-                    git.checkout().addPath(".gitignore").setStartPoint("master").call();
                 }
                 long costtime = (System.currentTimeMillis() - starttime) / 1000;
                 if (costtime > 2L) {
