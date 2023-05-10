@@ -694,7 +694,7 @@ public class Svn2GitTest {
                 System.out.println("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
                 isNewBranch = true;
             }
-            if (!isNewBranch && !hasModel) {
+            if (!isNewBranch && modelMap != null && !hasModel) {
                 System.out.println("    模块 " + gitRepoName + " 强制全量提交");
                 isNewBranch = true;
             }
