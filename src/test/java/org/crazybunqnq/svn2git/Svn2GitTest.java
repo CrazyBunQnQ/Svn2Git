@@ -28,6 +28,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static org.tmatesoft.svn.core.SVNLogEntryPath.TYPE_DELETED;
+
 public class Svn2GitTest {
 
     private final String USERNAME = "junjie";
@@ -55,14 +57,16 @@ public class Svn2GitTest {
 
     @Test
     public void syncSvnCommitTest() throws SVNException, IOException {
-        // final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
-        // final String svnRepoPath = "F:\\SvnRepo\\Platform";
-        // final String gitRepoPath = "F:\\GitRepo\\Platform";
-        // final Pattern dirRegx = Pattern.compile(".*/branches/([^/]+).*");
-        final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
-        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
+        final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
+        final String svnRepoPath = "F:\\SvnRepo\\Platform";
+        final String gitRepoPath = "F:\\GitRepo\\Platform";
+        final Pattern dirRegx = Pattern.compile(".*/branches/([^/]+).*");
+
+        // final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
+        // final String svnRepoPath = "F:\\SvnRepo\\Singularity";
+        // final String gitRepoPath = "F:\\GitRepo\\Singularity";
+        // final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
+
         syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
     }
 
@@ -305,7 +309,17 @@ public class Svn2GitTest {
 
                 writer.write("Changed Paths:\n");
                 for (Map.Entry<String, SVNLogEntryPath> entry : logEntry.getChangedPaths().entrySet()) {
-                    writer.write(entry.getValue().getType() + " " + entry.getKey() + "\n");
+                    SVNLogEntryPath entryPtah = entry.getValue();
+                    if (entryPtah.getCopyPath() != null || entryPtah.getCopyRevision() > 0) {
+                        System.out.println("current version: " + logEntry.getRevision());
+                        System.out.println("from    version: " + entryPtah.getCopyRevision());
+                        System.out.println("current path: " + entryPtah.getPath());
+                        System.out.println("from    path: " + entryPtah.getCopyPath());
+                        System.out.println();
+                        writer.write(entry.getValue().getType() + " " + entry.getKey() + " " + entryPtah.getCopyPath() + " " + entryPtah.getCopyRevision() + "\n");
+                    } else {
+                        writer.write(entry.getValue().getType() + " " + entry.getKey() + "\n");
+                    }
                 }
                 writer.write("\n");
             }
@@ -469,8 +483,13 @@ public class Svn2GitTest {
                     targetRevisionFound = true;
                 } else if (targetRevisionFound && line.startsWith("Changed Paths:")) {
                     while ((line = reader.readLine()) != null && !line.isEmpty()) {
-                        // SVNLogEntryPath entryPath = new SVNLogEntryPath(line.substring(2), line.charAt(0), null, null);
-                        SVNLogEntryPath entryPath = new SVNLogEntryPath(line.substring(2), line.charAt(0), null, revision);
+                        String[] items = line.split(" ");
+                        SVNLogEntryPath entryPath;
+                        if (items.length >= 4) {
+                            entryPath = new SVNLogEntryPath(items[1], line.charAt(0), items[2], Long.parseLong(items[3]));
+                        } else {
+                            entryPath = new SVNLogEntryPath(items[1], line.charAt(0), null, -1);
+                        }
                         String branch = getBranchFromPath(entryPath.getPath(), branchRegx);
                         changesByBranch.computeIfAbsent(branch, k -> new ArrayList<>()).add(entryPath);
                     }
@@ -492,8 +511,13 @@ public class Svn2GitTest {
                     targetRevisionFound = true;
                 } else if (targetRevisionFound && line.startsWith("Changed Paths:")) {
                     while ((line = reader.readLine()) != null && !line.isEmpty()) {
-                        // SVNLogEntryPath entryPath = new SVNLogEntryPath(line.substring(2), line.charAt(0), null, null);
-                        SVNLogEntryPath entryPath = new SVNLogEntryPath(line.substring(2), line.charAt(0), null, revision);
+                        String[] items = line.split(" ");
+                        SVNLogEntryPath entryPath;
+                        if (items.length >= 4) {
+                            entryPath = new SVNLogEntryPath(items[1], line.charAt(0), items[2], Long.parseLong(items[3]));
+                        } else {
+                            entryPath = new SVNLogEntryPath(items[1], line.charAt(0), null, -1);
+                        }
                         String model = getBranchFromPath(entryPath.getPath(), dirRegx);
                         String branch = null;
                         if (MODEL_BLACKLIST.contains(model)) {
@@ -504,7 +528,7 @@ public class Svn2GitTest {
                             Map<String, Object> regxMap = modelMap.get(model);
                             String regxStr = (String) regxMap.get("str");
                             Pattern branchRegx = (Pattern) regxMap.get("regx");
-                            Matcher matcher = branchRegx.matcher(line);
+                            Matcher matcher = branchRegx.matcher(entryPath.getPath());
                             // 独立模块在提交时再说
                             if (!regxStr.contains("(") || (regxStr.contains("(") && matcher.find())) {
                                 if (!regxStr.contains("(")) {
@@ -537,7 +561,7 @@ public class Svn2GitTest {
                                 }
                             } else {
                                 // 只可能是模块或分支目录，排除删除类型
-                                if (line.charAt(0) == 'D') {
+                                if (entryPath.getType() == TYPE_DELETED) {
                                     continue;
                                 }
                                 // 遍历文件夹，全量添加分支
@@ -552,7 +576,7 @@ public class Svn2GitTest {
                                         continue;
                                     }
                                     String realModelPath = entryPath.getPath().substring(0, entryPath.getPath().indexOf(model) + model.length()) + "/" + branch + "/" + realModelName;
-                                    SVNLogEntryPath newEntryPath = new SVNLogEntryPath(realModelPath, line.charAt(0), null, revision);
+                                    SVNLogEntryPath newEntryPath = new SVNLogEntryPath(realModelPath, line.charAt(0), null, -1L);
                                     if (regxStr.startsWith("new:")) {
                                         branch = model + ":" + branch;
                                     }
@@ -677,13 +701,16 @@ public class Svn2GitTest {
             long starttime = System.currentTimeMillis();
             if (!isNewBranch) {
                 List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
+                // 是否涉及合并
+                Set<String> mergeSet = new HashSet<>();
                 for (SVNLogEntryPath change : svnLogEntryPaths) {
                     // 从 change.getPath() 中截取 branch 之后的部分
                     String path = change.getPath();
+                    String copyPath = change.getCopyPath();
 
                     String model = null;
                     String realModelName;
-                    // 分支之后的路径
+                    // 分支名之后的路径
                     String branchPath;
                     if ("dev".equals(branch)) {
                         branchPath = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
@@ -696,8 +723,26 @@ public class Svn2GitTest {
                     if (modelMap == null) {
                         // 跳过分支根目录
                         if (branchPath.length() == branch.length()) {
-                            System.out.println("暂不跳过");
+                            System.out.println("        暂不跳过1");
                             // continue;
+                        }
+                        if (copyPath != null) {
+                            String fromBranchRegStr = path.replace(branch, "(.*)");
+                            Pattern fromBranchPattern = Pattern.compile(fromBranchRegStr);
+                            Matcher matcher = fromBranchPattern.matcher(copyPath);
+                            if (matcher.find()) {
+                                String fromBranch = matcher.group(1);
+                                fromBranch = fromBranch.contains("/") ? fromBranch.substring(0, fromBranch.indexOf("/")) : fromBranch;
+                                String fromto = fromBranch + "->" + branch;
+                                if (!branch.equals(fromBranch) && !mergeSet.contains(fromto)) {
+                                    mergeSet.add(fromto);
+                                    try {
+                                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本涉及分支合并操作: " + fromto + "\n及时确认是否需要先进行合并操作");
+                                    } catch (Exception ignored) {
+                                    }
+                                    System.out.println("    此版本涉及分支合并操作1: " + fromto);
+                                }
+                            }
                         }
                         contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + 1);
                         targetPath = Paths.get(gitRepoPath, contentPath);
@@ -728,8 +773,26 @@ public class Svn2GitTest {
                                 }
                                 // 跳过分支根目录
                                 if (branchPath.length() == branch.length() + realModelName.length() + 1 || (!regxStr.contains("(") && branchPath.equalsIgnoreCase(realModelName))) {
-                                    System.out.println("暂不跳过");
+                                    System.out.println("        暂不跳过2");
                                     // continue;
+                                }
+                                if (copyPath != null) {
+                                    String fromBranchRegStr = path.replace(branch, "(.*)");
+                                    Pattern fromBranchPattern = Pattern.compile(fromBranchRegStr);
+                                    Matcher matcher = fromBranchPattern.matcher(copyPath);
+                                    if (matcher.find()) {
+                                        String fromBranch = matcher.group(1);
+                                        fromBranch = fromBranch.contains("/") ? fromBranch.substring(0, fromBranch.indexOf("/")) : fromBranch;
+                                        String fromto = fromBranch + "->" + branch;
+                                        if (!branch.equals(fromBranch) && !mergeSet.contains(fromto)) {
+                                            mergeSet.add(fromto);
+                                            try {
+                                                sendMail("Svn2Git", svnRepoPath + " " + version + " 版本涉及分支合并操作: " + fromto + "\n及时确认是否需要先进行合并操作");
+                                            } catch (Exception ignored) {
+                                            }
+                                            System.out.println("    此版本涉及分支合并操作2: " + fromto);
+                                        }
+                                    }
                                 }
                                 if (regxStr.contains("(")) {
                                     contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 1);
@@ -755,7 +818,7 @@ public class Svn2GitTest {
                         }
                         Files.createDirectories(targetPath.getParent());
                         copyFile(sourceFile, targetFile);
-                    } else if (change.getType() == SVNLogEntryPath.TYPE_DELETED) {
+                    } else if (change.getType() == TYPE_DELETED) {
                         if (targetFile.exists()) {
                             if (targetFile.isDirectory()) {
                                 System.out.println("        删除目录1: " + targetPath);
@@ -871,7 +934,6 @@ public class Svn2GitTest {
                                         realModelName = regxStr.contains("(") ? getRealModelName(modelName, new File(file.getAbsolutePath() + File.separator + branch)) : fileName;
                                     } else if (regxStr.endsWith(")")) {
                                         if (!fileName.equals(branch)) {
-                                            System.out.println("        " + fileName + " 非当前分支 " + branch);
                                             continue;
                                         }
                                         realModelName = modelName;
@@ -905,12 +967,12 @@ public class Svn2GitTest {
                                     System.out.println("        未知模块: " + modelName);
                                 }
                             } else if (hasModel) {
-                                System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
+                                System.out.println("        复制文件1: " + file.getAbsolutePath() + " -> " + gitRepoPath + File.separator + modelName);
                                 copyFile(file, new File(gitRepoPath + File.separator + modelName));
                             } else {
                                 String realModelName = getRealModelName(modelName, new File(file.getAbsolutePath()));
                                 file = new File(file.getAbsolutePath() + File.separator + realModelName);
-                                System.out.println("        复制文件: " + file.getAbsolutePath() + " -> " + gitRepoPath);
+                                System.out.println("        复制文件2: " + file.getAbsolutePath() + " -> " + gitRepoPath);
                             }
                         }
                     }
