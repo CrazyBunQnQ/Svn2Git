@@ -1,57 +1,172 @@
 #!/bin/bash
 
+# 获取本次提交信息
+commit_msg_path=$(eval echo ~"${SUDO_USER}")/AppData/Local/Temp/git-commit-msg-.txt
+commit_msg=$(git log -1 --pretty=%B)
+# 如果 commit_msg_path 存在
+if [ -f "$commit_msg_path" ]; then
+  commit_msg=$(cat "$commit_msg_path")
+fi
+echo "提交信息: $commit_msg"
+
 # 获取Git仓库路径
 GIT_REPO_PATH=$(git rev-parse --show-toplevel)
+# 如果 GIT_REPO_PATH 包含 ":"
+if [[ $GIT_REPO_PATH == *":"* ]]; then
+  # 将 ":" 转换为 "/"
+  GIT_REPO_PATH=/${GIT_REPO_PATH//:/}
+fi
+echo "Git 仓库路径: $GIT_REPO_PATH"
 
 # 获取SVN仓库路径
 SVN_REPO_PATH=$(cat "$GIT_REPO_PATH/.svn_path")
+# 如果 SVN_REPO_PATH 包含 ":"
+if [[ $SVN_REPO_PATH == *":"* ]]; then
+  # 将 ":" 转换为 "/"
+  SVN_REPO_PATH=/${SVN_REPO_PATH//:/}
+fi
+echo "SVN 仓库路径: $SVN_REPO_PATH"
 
+# 获取 SVN 仓库地址
+current_path=$(pwd)
+cd "$SVN_REPO_PATH"
+SVN_REPO_URL=$(svn info --show-item url)
+cd "$current_path"
+echo "SVN 仓库地址: $SVN_REPO_URL"
+
+echo "↓"
+echo "========== 检查 git 版本是否最新 =========="
 # 确保git分支是最新的
 git fetch
 
 current_branch=$(git branch --show-current)
-local_commit=$(git rev-parse $current_branch)
-remote_commit=$(git rev-parse origin/$current_branch)
+local_commit=$(git rev-parse "$current_branch")
+remote_commit=$(git rev-parse "origin/$current_branch")
+echo "本地分支: $current_branch"
 
 if [ "$local_commit" != "$remote_commit" ]; then
-  echo "Your branch is not up-to-date with the remote branch. Please pull the latest changes and try again."
+  echo "本地分支最新提交: $local_commit"
+  echo "远程分支最新提交: $remote_commit"
+  echo "您的分支相对于远程分支不是最新的。请先更新代码后再试。"
   exit 1
 fi
 
+echo "↓"
+echo "========== 检查 svn、git 版本同步状态 =========="
+# 获取远程 svn 最新版本号
+remote_svn_version=$(svn info "$SVN_REPO_URL" | grep "Last Changed Rev" | awk '{print $4}')
+# 获取 git 项目已同步的 svn 版本号
+git_svn_version=$(git log -n 1 --branches --no-merges --format=%s)
+# 从 git_svn_version 截取 ":" 左边的部分
+git_svn_version=${git_svn_version%%:*}
+# 从 git_svn_version 截取最后一个 " " 右边的部分
+git_svn_version=${git_svn_version##* }
+# 如果 git_svn_version 不等于 remote_svn_version 则提示先同步 svn 仓库并退出
+if [ "$git_svn_version" != "$remote_svn_version" ]; then
+  echo "当前 git 项目版本 $git_svn_version 落后于 SVN 项目版本 $remote_svn_version。请先等待远程仓库同步并更新代码后再试。"
+  exit 1
+fi
+
+echo "↓"
+echo "========== 新增或修改的文件 =========="
 # 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
 deleted_files=$(git diff --cached --name-only --diff-filter=D)
+echo "暂存区文件列表:"
+echo "$staged_files"
+echo "删除文件列表:"
+echo "$deleted_files"
 
-# 如果没有暂存的文件，直接退出
+# 如果没有暂存也没有删除的文件，直接退出
 if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
+  echo "没有新增或修改的文件"
   exit 1
 fi
 
 # 使用patch模式将Git暂存区的更改应用于SVN工作副本
 for file in $staged_files; do
-  git diff --cached --patch $file | (cd $SVN_REPO_PATH && patch -p1)
-  if [ $? -ne 0 ]; then
-    echo "Patching $file failed. Aborting commit."
-    exit 1
+  echo "file: $file"
+  # AtlasCenter/docker/Dockerfile
+  # 截取 file 字符串第一个 / 左边的部分
+  model=${file%%/*}
+  # 截取 file 字符串第一个 / 右边的部分
+  content_path=${file#*/}
+  # model 换为小写
+  model_lower=${model,,}
+  # 如果 model 为 VirusCenter
+  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
+  if [ "$model" == "VirusCenter" ]; then
+    svn_path=$SVN_REPO_PATH/$model
   fi
-  svn add $SVN_REPO_PATH/$file --force
+  # 如果 file 不包含 '/' 并且 git_path 不是目录
+  git_path=$GIT_REPO_PATH/$file
+  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
+    svn_path=$SVN_REPO_PATH
+  fi
+  update_file_path=$svn_path/$content_path
+  echo "svn_path: $svn_path"
+  echo "update_file_path: $update_file_path"
+  git diff --cached --patch "$file" | (cd "$svn_path" && patch -p2)
+  if [ $? -ne 0 ]; then
+    echo "修改 $file 失败"
+  fi
+  # 如果文件存在则执行 svn add
+  if [ -f "$update_file_path" ]; then
+    # 此行未测试
+    svn add "$update_file_path" --force
+  else
+    echo "$update_file_path 不存在"
+  fi
+  echo "-------------------"
 done
 
+echo "↓"
+echo "========== 删除文件 =========="
 # 在SVN工作副本中删除文件
 for file in $deleted_files; do
-  svn rm $SVN_REPO_PATH/$file
+  echo "file: $file"
+  # AtlasCenter/docker/Dockerfile
+  # 截取 file 字符串第一个 / 左边的部分
+  model=${file%%/*}
+  # 截取 file 字符串第一个 / 右边的部分
+  content_path=${file#*/}
+  # model 换为小写
+  model_lower=${model,,}
+  # 如果 model 为 VirusCenter
+  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
+  if [ "$model" == "VirusCenter" ]; then
+    svn_path=$SVN_REPO_PATH/$model
+  fi
+  # 如果 file 不包含 '/' 并且 git_path 不是目录
+  git_path=$GIT_REPO_PATH/$file
+  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
+    svn_path=$SVN_REPO_PATH
+  fi
+
+  delete_file_path=$svn_path/$content_path
+  echo "svn_path: $svn_path"
+  echo "delete_file_path: $delete_file_path"
+
+  # 如果文件存在则执行 svn add
+  if [ -f "$delete_file_path" ]; then
+    # 此行未测试
+    svn rm "$delete_file_path"
+  else
+    echo "$delete_file_path 不存在"
+  fi
+  echo "-------------------"
 done
 
+echo "↓"
+echo "========== SVN 提交 =========="
 # 提交SVN工作副本的更改
-svn_commit_msg=$(git log -1 --pretty=%B)
-cd $SVN_REPO_PATH
-svn commit -m "$svn_commit_msg"
+echo "svn_commit_msg: $commit_msg"
+cd "$SVN_REPO_PATH"
+svn commit -m "$commit_msg"
+cd "$current_path"
 
-# 恢复SVN工作副本的文件
-for file in $staged_files; do
-  svn revert $SVN_REPO_PATH/$file
-done
+# TODO 调用接口立即同步代码仓库
 
 # 拒绝git提交
-echo "Git commit has been rejected. Changes have been committed to the SVN repository."
+echo "Git 提交已被拒绝。更改已提交到 SVN 存储库。请等待 Git 仓库同步后更新代码检查你提交的内容。"
 exit 1
