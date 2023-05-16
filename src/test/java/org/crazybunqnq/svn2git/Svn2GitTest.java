@@ -670,6 +670,24 @@ public class Svn2GitTest {
                         subChangesByBranch, version, author, commitMsg, tmpModelMap, false);
                 continue;
             }
+            // 是否涉及合并
+            boolean hasMerge = false;
+            Set<String> mergeSet = new HashSet<>();
+            List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
+            for (SVNLogEntryPath change : svnLogEntryPaths) {
+                String path = change.getPath();
+                String copyPath = change.getCopyPath();
+                checkMergeAction(svnRepoPath, version, branch, mergeSet, path, copyPath);
+            }
+            if (!mergeSet.isEmpty()) {
+                String msg = String.join("\n", mergeSet);
+                try {
+                    sendMail("Svn2Git", svnRepoPath + " " + version + " 版本涉及分支合并操作: \n" + msg + "\n及时确认是否需要先进行合并操作");
+                } catch (Exception ignored) {
+                }
+                System.out.println("    此版本涉及分支合并操作: \n" + msg);
+                hasMerge = true;
+            }
             boolean isNewBranch = checkoutOrCreateBranch(git, branch);
 
             long lastVersion = lastFixVersion != null && lastFixVersion.containsKey(branch) ? lastFixVersion.get(branch) : 0;
@@ -683,26 +701,12 @@ public class Svn2GitTest {
             }
 
             // 从 master 分支检出 .gitignore 文件
-            if (!"master".equals(branch)) {
-                git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
-                try {
-                    git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
-                    if (modelMap != null && hasModel) {
-                        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-                    }
-                } catch (Exception ignored) {
-                    ignored.printStackTrace();
-                }
-            }
+            modelMap = checkoutFromMasterAndReloadModelMap(gitRepoPath, modelMap, hasModel, git, branch);
             long starttime = System.currentTimeMillis();
-            if (!isNewBranch) {
-                List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
-                // 是否涉及合并
-                Set<String> mergeSet = new HashSet<>();
+            if (!isNewBranch && !hasMerge) {
                 for (SVNLogEntryPath change : svnLogEntryPaths) {
                     // 从 change.getPath() 中截取 branch 之后的部分
                     String path = change.getPath();
-                    String copyPath = change.getCopyPath();
 
                     String model = null;
                     String realModelName;
@@ -722,25 +726,7 @@ public class Svn2GitTest {
                             System.out.println("        暂不跳过1");
                             // continue;
                         }
-                        if (copyPath != null) {
-                            String fromBranchRegStr = path.replace(branch, "(.*)");
-                            Pattern fromBranchPattern = Pattern.compile(fromBranchRegStr);
-                            Matcher matcher = fromBranchPattern.matcher(copyPath);
-                            if (matcher.find()) {
-                                String fromBranch = matcher.group(1);
-                                fromBranch = fromBranch.contains("/") ? fromBranch.substring(0, fromBranch.indexOf("/")) : fromBranch;
-                                String fromto = fromBranch + "->" + branch;
-                                if (!branch.equals(fromBranch) && !mergeSet.contains(fromto)) {
-                                    mergeSet.add(fromto);
-                                    try {
-                                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本涉及分支合并操作: " + fromto + "\n及时确认是否需要先进行合并操作");
-                                    } catch (Exception ignored) {
-                                    }
-                                    System.out.println("    此版本涉及分支合并操作1: " + fromto);
-                                }
-                            }
-                        }
-                        contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + 1);
+                        contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length());
                         targetPath = Paths.get(gitRepoPath, contentPath);
                     } else {
                         model = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
@@ -770,24 +756,6 @@ public class Svn2GitTest {
                                 if (branchPath.length() == branch.length() + realModelName.length() + 1 || (!regxStr.contains("(") && branchPath.equalsIgnoreCase(realModelName))) {
                                     System.out.println("        暂不跳过2");
                                     // continue;
-                                }
-                                if (copyPath != null) {
-                                    String fromBranchRegStr = path.replace(branch, "(.*)");
-                                    Pattern fromBranchPattern = Pattern.compile(fromBranchRegStr);
-                                    Matcher matcher = fromBranchPattern.matcher(copyPath);
-                                    if (matcher.find()) {
-                                        String fromBranch = matcher.group(1);
-                                        fromBranch = fromBranch.contains("/") ? fromBranch.substring(0, fromBranch.indexOf("/")) : fromBranch;
-                                        String fromto = fromBranch + "->" + branch;
-                                        if (!branch.equals(fromBranch) && !mergeSet.contains(fromto)) {
-                                            mergeSet.add(fromto);
-                                            try {
-                                                sendMail("Svn2Git", svnRepoPath + " " + version + " 版本涉及分支合并操作: " + fromto + "\n及时确认是否需要先进行合并操作");
-                                            } catch (Exception ignored) {
-                                            }
-                                            System.out.println("    此版本涉及分支合并操作2: " + fromto);
-                                        }
-                                    }
                                 }
                                 if (regxStr.contains("(")) {
                                     contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 1);
@@ -1006,6 +974,37 @@ public class Svn2GitTest {
         if (version > 0L) {
             Files.write(Paths.get(gitRepoPath, ".svn_version"), String.valueOf(version).getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
+    }
+
+    private static void checkMergeAction(String svnRepoPath, long version, String branch, Set<String> mergeSet, String path, String copyPath) {
+        if (copyPath != null) {
+            String fromBranchRegStr = path.replace(branch, "(.*)");
+            Pattern fromBranchPattern = Pattern.compile(fromBranchRegStr);
+            Matcher matcher = fromBranchPattern.matcher(copyPath);
+            if (matcher.find()) {
+                String fromBranch = matcher.group(1);
+                fromBranch = fromBranch.contains("/") ? fromBranch.substring(0, fromBranch.indexOf("/")) : fromBranch;
+                String fromto = fromBranch + "->" + branch;
+                if (!branch.equals(fromBranch) && !mergeSet.contains(fromto)) {
+                    mergeSet.add(fromto);
+                }
+            }
+        }
+    }
+
+    private static Map<String, Map<String, Object>> checkoutFromMasterAndReloadModelMap(String gitRepoPath, Map<String, Map<String, Object>> modelMap, boolean hasModel, Git git, String branch) throws GitAPIException {
+        if (!"master".equals(branch)) {
+            git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
+            try {
+                git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
+                if (modelMap != null && hasModel) {
+                    modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
+                }
+            } catch (Exception ignored) {
+                ignored.printStackTrace();
+            }
+        }
+        return modelMap;
     }
 
     /**
