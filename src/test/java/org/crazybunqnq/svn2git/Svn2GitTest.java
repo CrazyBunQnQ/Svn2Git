@@ -6,6 +6,7 @@ import org.eclipse.jgit.api.RmCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.junit.Test;
 import org.tmatesoft.svn.core.*;
@@ -23,18 +24,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static org.tmatesoft.svn.core.SVNLogEntryPath.TYPE_DELETED;
+import static org.tmatesoft.svn.core.SVNLogEntryPath.*;
 
 public class Svn2GitTest {
 
     private final String USERNAME = "junjie";
     private final String PASSWORD = "junjie@20230301";
-    private final String LOG_FILE_PATH = "svn_commit.log";
+    private static final String LOG_FILE_PATH = "svn_commit.log";
+    private static final SimpleDateFormat SIMPLE_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
 
     private static Map<String, String> emailMap = new HashMap<>();
 
@@ -58,7 +62,7 @@ public class Svn2GitTest {
     @Test
     public void syncSvnCommitTest() throws SVNException, IOException {
         final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
-        final String svnRepoPath = "F:\\SvnRepo\\Platform";
+        final String svnRepoPath = "F:\\SvnRepo\\SMPlatform";
         final String gitRepoPath = "F:\\GitRepo\\Platform";
         final Pattern dirRegx = Pattern.compile(".*/branches/([^/]+).*");
 
@@ -204,6 +208,10 @@ public class Svn2GitTest {
         while (revision > 0) {
             Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
             revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
+            if (revision < 0) {
+                System.out.println("Git 版本 " + curSvnVersionInGit + " 之后没有需要同步的提交记录");
+                break;
+            }
             String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             System.out.println("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
@@ -305,18 +313,13 @@ public class Svn2GitTest {
             for (MergedSVNLogEntry logEntry : logEntries) {
                 writer.write("Revision: " + logEntry.getRevision() + "\n");
                 writer.write("Author: " + logEntry.getAuthor() + "\n");
-                writer.write("Date: " + logEntry.getDate() + "\n");
+                writer.write("Date: " + SIMPLE_DATE_FORMAT.format(logEntry.getDate()) + "\n");
                 writer.write("Message: " + logEntry.getMessage() + "\n");
 
                 writer.write("Changed Paths:\n");
                 for (Map.Entry<String, SVNLogEntryPath> entry : logEntry.getChangedPaths().entrySet()) {
                     SVNLogEntryPath entryPtah = entry.getValue();
                     if (entryPtah.getCopyPath() != null || entryPtah.getCopyRevision() > 0) {
-                        System.out.println("current version: " + logEntry.getRevision());
-                        System.out.println("from    version: " + entryPtah.getCopyRevision());
-                        System.out.println("current path: " + entryPtah.getPath());
-                        System.out.println("from    path: " + entryPtah.getCopyPath());
-                        System.out.println();
                         writer.write(entry.getValue().getType() + " " + entry.getKey() + " " + entryPtah.getCopyPath() + " " + entryPtah.getCopyRevision() + "\n");
                     } else {
                         writer.write(entry.getValue().getType() + " " + entry.getKey() + "\n");
@@ -325,44 +328,6 @@ public class Svn2GitTest {
                 writer.write("\n");
             }
         }
-    }
-
-    private void getDiffBy2VersionFromSvn(SVNRepository repository, Long preVersion, Long newVersion) throws SVNException, FileNotFoundException {
-        // 配置日志参数
-        // SVNLogClient logClient = new SVNLogClient(repository.getAuthenticationManager(), repository.createRepositoryPool());
-        // ISVNAuthenticationManager authenticationManager = repository.getAuthenticationManager();
-        // SVNLogClient logClient = new SVNLogClient(authenticationManager, repository.op
-        SVNClientManager clientManager = SVNClientManager.newInstance();
-        SVNLogClient logClient = clientManager.getLogClient();
-        // logClient.setDiffOptions();
-
-        ISVNLogEntryHandler logEntryHandler = logEntry -> {
-            try (PrintWriter writer = new PrintWriter(new FileOutputStream(".svn_update", true))) {
-                writer.println("Revision: " + logEntry.getRevision());
-                writer.println("Author: " + logEntry.getAuthor());
-                writer.println("Date: " + logEntry.getDate());
-                writer.println("Message: " + logEntry.getMessage());
-
-                for (Object path : logEntry.getChangedPaths().values()) {
-                    SVNLogEntryPath entryPath = (SVNLogEntryPath) path;
-                    writer.println("  " + entryPath.getType() + " " + entryPath.getPath());
-                }
-                writer.println();
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException(e);
-            }
-        };
-
-        // 获取日志并输出到文件
-        SVNURL url = repository.getLocation();
-        String[] targetPaths = new String[]{""};
-        boolean stopOnCopy = false;
-        boolean discoverChangedPaths = true;
-        boolean includeMergedRevisions = false;
-        long limit = 0L;
-
-        logClient.doLog(url, targetPaths, null, SVNRevision.create(preVersion + 1), SVNRevision.create(newVersion),
-                stopOnCopy, discoverChangedPaths, includeMergedRevisions, limit, null, logEntryHandler);
     }
 
     /**
@@ -424,6 +389,22 @@ public class Svn2GitTest {
                     return line.split(" ")[1];
                 }
             }
+        }
+        return null;
+    }
+
+    private static Date readDateFromLogFile(String filePath, long version) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            boolean targetRevisionFound = false;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("Revision:") && Long.parseLong(line.split(" ")[1]) == version) {
+                    targetRevisionFound = true;
+                } else if (targetRevisionFound && line.startsWith("Date: ")) {
+                    return SIMPLE_DATE_FORMAT.parse(line.substring(6));
+                }
+            }
+        } catch (ParseException ignored) {
         }
         return null;
     }
@@ -655,6 +636,8 @@ public class Svn2GitTest {
         StoredConfig config = git.getRepository().getConfig();
         config.setString("user", null, "name", author);
         config.setString("user", null, "email", emailMap.get(author));
+        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, version);
+        PersonIdent personIdent = new PersonIdent(new PersonIdent(author, emailMap.get(author)), commitDate == null ? new Date() : commitDate);
         // 将 changesByBranch 的 key 尾号进行排序
         List<String> sortedBranches = changesByBranch.keySet().stream().sorted().collect(Collectors.toList());
 
@@ -767,7 +750,6 @@ public class Svn2GitTest {
                         if (modelMap.containsKey(model)) {
                             regxStr = (String) modelMap.get(model).get("str");
                             if (regxStr.startsWith("new:")) {
-                                // TODO
                                 try {
                                     sendMail("Svn2Git", svnRepoPath + " " + version + " 版本出现独立模块");
                                 } catch (Exception ignored) {
@@ -818,7 +800,7 @@ public class Svn2GitTest {
                     }
 
                     File targetFile = targetPath.toFile();
-                    if (change.getType() == SVNLogEntryPath.TYPE_ADDED || change.getType() == SVNLogEntryPath.TYPE_MODIFIED) {
+                    if (change.getType() == TYPE_ADDED || change.getType() == TYPE_MODIFIED) {
                         Path sourcePath = model == null || (regxStr != null && !regxStr.contains("(")) ? Paths.get(svnRepoPath, branchPath) : Paths.get(svnRepoPath, model, branchPath);
                         File sourceFile = sourcePath.toFile();
                         if (!sourceFile.exists()) {
@@ -870,9 +852,9 @@ public class Svn2GitTest {
                 }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
-                        git.commit().setMessage("SVN vision " + version).call();
+                        git.commit().setMessage("SVN vision " + version).setCommitter(personIdent).call();
                     } else {
-                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).setCommitter(personIdent).call();
                     }
                 }
             } else {
@@ -1011,9 +993,9 @@ public class Svn2GitTest {
                 }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
-                        git.commit().setMessage("SVN vision " + version).call();
+                        git.commit().setMessage("SVN vision " + version).setCommitter(personIdent).call();
                     } else {
-                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).call();
+                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).setCommitter(personIdent).call();
                     }
                 }
                 lastFixVersion.put(branch, version);
