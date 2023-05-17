@@ -1030,6 +1030,16 @@ public class Svn2GitTest {
             } catch (Exception ignored) {
                 ignored.printStackTrace();
             }
+            try {
+                git.checkout().addPath("README.md").setForced(true).setStartPoint("master").call();
+            } catch (Exception ignored) {
+                ignored.printStackTrace();
+            }
+            try {
+                git.checkout().addPath("hooks").setForced(true).setStartPoint("master").call();
+            } catch (Exception ignored) {
+                ignored.printStackTrace();
+            }
         }
         return modelMap;
     }
