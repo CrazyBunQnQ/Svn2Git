@@ -104,6 +104,7 @@ public class Svn2GitTest {
         long startTime;
         String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
         String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
         logger.info("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
         startTime = System.currentTimeMillis();
         try {
@@ -121,7 +122,7 @@ public class Svn2GitTest {
         logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
         try {
             long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
+            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
             logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
             logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
         } catch (Exception e) {
@@ -193,13 +194,14 @@ public class Svn2GitTest {
 
         String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
         String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
         startTime = System.currentTimeMillis();
         Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
 
         logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
         try {
             long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
+            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
             logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
             logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
         } catch (Exception e) {
@@ -230,6 +232,7 @@ public class Svn2GitTest {
             }
             String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+            Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             logger.info("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
             startTime = System.currentTimeMillis();
             try {
@@ -248,7 +251,7 @@ public class Svn2GitTest {
             logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
             try {
                 long gitCommitStartTime = System.currentTimeMillis();
-                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, modelMap, modelMap != null);
+                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
                 logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
                 logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
             } catch (Exception e) {
@@ -646,13 +649,12 @@ public class Svn2GitTest {
      * @throws IOException
      * @throws GitAPIException
      */
-    private static void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
+    private static void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
         Git git = Git.open(new File(gitRepoPath));
         // 设置提交用户
         StoredConfig config = git.getRepository().getConfig();
         config.setString("user", null, "name", author);
         config.setString("user", null, "email", emailMap.get(author));
-        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, version);
         PersonIdent personIdent = new PersonIdent(new PersonIdent(author, emailMap.get(author)), commitDate == null ? new Date() : commitDate);
         // 将 changesByBranch 的 key 尾号进行排序
         List<String> sortedBranches = changesByBranch.keySet().stream().sorted().collect(Collectors.toList());
@@ -683,7 +685,7 @@ public class Svn2GitTest {
                 subChangesByBranch.put(tmpBranch, changesByBranch.get(branch));
                 copySvnChangesToGit(svnRepoPath + File.separator + tmpModel,
                         gitRepoPath.replace(gitRepoName, tmpModel),
-                        subChangesByBranch, version, author, commitMsg, tmpModelMap, false);
+                        subChangesByBranch, version, author, commitMsg, commitDate, tmpModelMap, false);
                 continue;
             }
             // 是否涉及合并
