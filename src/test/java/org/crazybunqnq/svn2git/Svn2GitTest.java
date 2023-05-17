@@ -48,14 +48,14 @@ public class Svn2GitTest {
 
     private static Map<String, String> emailMap = new HashMap<>();
 
-    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties"});
+    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
     private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
     private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
     private static Map<String, Long> lastFixVersion;
     private static final String MODEL_MAP_FILE = "svn_git_map.properties";
     private static Map<String, Map<String, Object>> modelMap = null;
-    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata"});
+    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata", "hooks"});
     private static final List<String> BRANCH_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", "Common", "transceiver"});
     private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata"});
     private Set<String> newModel = new HashSet<>(20);
@@ -982,6 +982,21 @@ public class Svn2GitTest {
                 writeFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE, lastFixVersion);
             }
         }
+        try {
+            git.push().setPushAll().call();
+        } catch (Exception ignore) {
+            try {
+                logger.info("  push 失败，尝试强制 push");
+                git.push().setPushAll().setForce(true).call();
+            } catch (Exception e) {
+                e.printStackTrace();
+                try {
+                    sendMail("Svn2Git", "git push 异常: " + e.getMessage());
+                } catch (Exception ignored) {
+                }
+                logger.info("        git push 异常: " + e.getMessage());
+            }
+        }
         git.close();
         if (version > 0L) {
             Files.write(Paths.get(gitRepoPath, ".svn_version"), String.valueOf(version).getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -1096,8 +1111,7 @@ public class Svn2GitTest {
                 modelMap.put(branch, map);
             }
             return modelMap;
-        } catch (FileNotFoundException e) {
-            logger.info("File not found: " + filePath);
+        } catch (FileNotFoundException ignored) {
         }
 
         return null;
