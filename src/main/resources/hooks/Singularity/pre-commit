@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# 不提交到 Svn 的目录或文件
+white_list=("README.md" "hooks/pre-commit" "hooks/pre-push" ".gitignore" "config.bat" "config.sh")
+
+is_in_white_list() {
+  for item in "${white_list[@]}"; do
+    if [ "$item" == "$1" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 # 获取本次提交信息
 commit_msg_path=$(eval echo ~"${SUDO_USER}")/AppData/Local/Temp/git-commit-msg-.txt
 commit_msg=$(git log -1 --pretty=%B)
@@ -86,6 +98,11 @@ fi
 # 使用patch模式将Git暂存区的更改应用于SVN工作副本
 for file in $staged_files; do
   echo "file: $file"
+  is_in_white_list "$file"
+  if [ $? -eq 1 ]; then
+      echo "不提交 $file"
+      continue
+  fi
   # AtlasCenter/docker/Dockerfile
   # 截取 file 字符串第一个 / 左边的部分
   model=${file%%/*}
@@ -124,6 +141,11 @@ echo "========== 删除文件 =========="
 # 在SVN工作副本中删除文件
 for file in $deleted_files; do
   echo "file: $file"
+  is_in_white_list "$file"
+  if [ $? -eq 1 ]; then
+      echo "不提交 $file"
+      continue
+  fi
   # AtlasCenter/docker/Dockerfile
   # 截取 file 字符串第一个 / 左边的部分
   model=${file%%/*}
