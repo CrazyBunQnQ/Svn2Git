@@ -780,7 +780,7 @@ public class Svn2GitTest {
                                 if (regxStr.contains("(")) {
                                     contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length() + realModelName.length() + 1);
                                 } else {
-                                    contentPath = branchPath.substring(realModelName.length() + 1);
+                                    contentPath = branchPath.substring(realModelName.length());
                                 }
                                 targetPath = Paths.get(gitRepoPath, model, contentPath);
                             }
