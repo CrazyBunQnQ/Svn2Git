@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# 不提交到 Svn 的目录或文件
+white_list=("README.md" "hooks/pre-commit" "hooks/pre-push" ".gitignore" "config.bat" "config.sh")
+
+is_in_white_list() {
+  for item in "${white_list[@]}"; do
+    if [ "$item" == "$1" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 # 获取本次提交信息
 commit_msg_path=$(eval echo ~"${SUDO_USER}")/AppData/Local/Temp/git-commit-msg-.txt
 commit_msg=$(git log -1 --pretty=%B)
@@ -68,7 +80,7 @@ if [ "$git_svn_version" != "$remote_svn_version" ]; then
 fi
 
 echo "↓"
-echo "========== 新增或修改的文件 =========="
+echo "========== 获取待提交文件 =========="
 # 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
 deleted_files=$(git diff --cached --name-only --diff-filter=D)
@@ -83,37 +95,27 @@ if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
   exit 1
 fi
 
+echo "↓"
+echo "========== 新增或修改的文件 =========="
 # 使用patch模式将Git暂存区的更改应用于SVN工作副本
 for file in $staged_files; do
   echo "file: $file"
-  # AtlasCenter/docker/Dockerfile
-  # 截取 file 字符串第一个 / 左边的部分
-  model=${file%%/*}
-  # 截取 file 字符串第一个 / 右边的部分
-  content_path=${file#*/}
-  # model 换为小写
-  model_lower=${model,,}
-  # 如果 model 为 VirusCenter
-  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
-  if [ "$model" == "VirusCenter" ]; then
-    svn_path=$SVN_REPO_PATH/$model
+  is_in_white_list "$file"
+  if [ $? -eq 1 ]; then
+      echo "不提交 $file"
+      continue
   fi
-  # 如果 file 不包含 '/' 并且 git_path 不是目录
-  git_path=$GIT_REPO_PATH/$file
-  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
-    svn_path=$SVN_REPO_PATH
-  fi
-  update_file_path=$svn_path/$content_path
+  svn_path=$SVN_REPO_PATH/$current_branch
+  update_file_path=$svn_path/$file
   echo "svn_path: $svn_path"
   echo "update_file_path: $update_file_path"
-  git diff --cached --patch "$file" | (cd "$svn_path" && patch -p2)
+  git diff --cached --patch "$file" | (cd "$svn_path" && patch -p1)
   if [ $? -ne 0 ]; then
     echo "修改 $file 失败"
   fi
   # 如果文件存在则执行 svn add
   if [ -f "$update_file_path" ]; then
-    # 此行未测试
-    svn add "$update_file_path" --force
+    svn add "$update_file_path" --force --parents
   else
     echo "$update_file_path 不存在"
   fi
@@ -125,31 +127,18 @@ echo "========== 删除文件 =========="
 # 在SVN工作副本中删除文件
 for file in $deleted_files; do
   echo "file: $file"
-  # AtlasCenter/docker/Dockerfile
-  # 截取 file 字符串第一个 / 左边的部分
-  model=${file%%/*}
-  # 截取 file 字符串第一个 / 右边的部分
-  content_path=${file#*/}
-  # model 换为小写
-  model_lower=${model,,}
-  # 如果 model 为 VirusCenter
-  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
-  if [ "$model" == "VirusCenter" ]; then
-    svn_path=$SVN_REPO_PATH/$model
+  is_in_white_list "$file"
+  if [ $? -eq 1 ]; then
+      echo "不提交 $file"
+      continue
   fi
-  # 如果 file 不包含 '/' 并且 git_path 不是目录
-  git_path=$GIT_REPO_PATH/$file
-  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
-    svn_path=$SVN_REPO_PATH
-  fi
-
-  delete_file_path=$svn_path/$content_path
+  svn_path=$SVN_REPO_PATH/$current_branch
+  delete_file_path=$svn_path/$file
   echo "svn_path: $svn_path"
   echo "delete_file_path: $delete_file_path"
 
-  # 如果文件存在则执行 svn add
+  # 如果文件存在则执行 svn rm
   if [ -f "$delete_file_path" ]; then
-    # 此行未测试
     svn rm "$delete_file_path"
   else
     echo "$delete_file_path 不存在"
