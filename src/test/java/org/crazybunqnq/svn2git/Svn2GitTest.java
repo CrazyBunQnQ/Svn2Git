@@ -1,6 +1,6 @@
 package org.crazybunqnq.svn2git;
 
-import org.crazybunqnq.entity.MergedSVNLogEntry;
+import org.crazybunqnq.svn2git.entity.MergedSVNLogEntry;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.RmCommand;
 import org.eclipse.jgit.api.Status;
@@ -48,7 +48,7 @@ public class Svn2GitTest {
 
     private static Map<String, String> emailMap = new HashMap<>();
 
-    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md"});
+    private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md", "config.bat", "config.sh"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
     private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
     private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
@@ -67,15 +67,21 @@ public class Svn2GitTest {
 
     @Test
     public void syncSvnCommitTest() throws SVNException, IOException {
-        final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
-        final String svnRepoPath = "F:\\SvnRepo\\SMPlatform";
-        final String gitRepoPath = "F:\\GitRepo\\Platform";
-        final Pattern dirRegx = Pattern.compile(".*/branches/([^/]+).*");
+        String svnUrl;
+        String svnRepoPath;
+        String gitRepoPath;
+        Pattern dirRegx;
 
-        // final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
-        // final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        // final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        // final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
+        svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
+        svnRepoPath = "F:\\SvnRepo\\SMPlatform";
+        gitRepoPath = "F:\\GitRepo\\Platform";
+        dirRegx = Pattern.compile(".*/branches/([^/]+).*");
+        syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
+
+        svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
+        svnRepoPath = "F:\\SvnRepo\\Singularity";
+        gitRepoPath = "F:\\GitRepo\\Singularity";
+        dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
 
         syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
     }
@@ -1024,24 +1030,14 @@ public class Svn2GitTest {
     private static Map<String, Map<String, Object>> checkoutFromMasterAndReloadModelMap(String gitRepoPath, Map<String, Map<String, Object>> modelMap, boolean hasModel, Git git, String branch) throws GitAPIException {
         if (!"master".equals(branch)) {
             git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
-            try {
-                git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
-                if (modelMap != null && hasModel) {
-                    modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-                }
-            } catch (Exception ignored) {
-                ignored.printStackTrace();
+            git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
+            if (modelMap != null && hasModel) {
+                modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
             }
-            try {
-                git.checkout().addPath("README.md").setForced(true).setStartPoint("master").call();
-            } catch (Exception ignored) {
-                ignored.printStackTrace();
-            }
-            try {
-                git.checkout().addPath("hooks").setForced(true).setStartPoint("master").call();
-            } catch (Exception ignored) {
-                ignored.printStackTrace();
-            }
+            git.checkout().addPath("README.md").setForced(true).setStartPoint("master").call();
+            git.checkout().addPath("hooks").setForced(true).setStartPoint("master").call();
+            git.checkout().addPath("config.bat").setForced(true).setStartPoint("master").call();
+            git.checkout().addPath("config.sh").setForced(true).setStartPoint("master").call();
         }
         return modelMap;
     }

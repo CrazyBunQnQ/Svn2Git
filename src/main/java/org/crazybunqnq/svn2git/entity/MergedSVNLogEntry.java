@@ -1,4 +1,4 @@
-package org.crazybunqnq.entity;
+package org.crazybunqnq.svn2git.entity;
 
 import org.tmatesoft.svn.core.SVNLogEntry;
 import org.tmatesoft.svn.core.SVNLogEntryPath;
