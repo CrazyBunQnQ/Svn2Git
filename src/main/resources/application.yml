@@ -1,27 +1,42 @@
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/your_database_name?serverTimezone=UTC&useSSL=false
-    username: your_username
-    password: your_password
-    driver-class-name: com.mysql.cj.jdbc.Driver
+server:
+  port: 917
 
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
+spring:
+#  datasource:
+#    url: jdbc:mysql://localhost:3306/your_database_name?serverTimezone=UTC&useSSL=false
+#    username: your_username
+#    password: your_password
+#    driver-class-name: com.mysql.cj.jdbc.Driver
+
+#  jpa:
+#    hibernate:
+#      ddl-auto: update
+#    show-sql: true
 
 svn:
-  repository:
-    url: https://your_svn_repository_url
-    username: your_svn_username
-    password: your_svn_password
+  username: your_svn_username
+  password: your_svn_password
 
-gitlab:
-  api:
-    url: https://your_gitlab_api_url
-    private-token: your_gitlab_private_token
+git:
+  user_map:
+    user1name: user1email
+    user2name: user2email
+    user3name: user3email
 
-sync:
-  schedule:
-    svn-pull: 0 0/5 * * * *
-    gitlab-push: 0 0/10 * * * *
+# 要同步的项目设置
+svn2git:
+  platform:
+    svn_url: your_svn_url
+    svn_project_path: your_sync_svn_project_path
+    git_project_path: your_sync_git_project_path
+    dir_regx: a_regular_expression_to_match_your_project_branch
+  example:
+    svn_url: http://127.0.0.1:8443/repo/example
+    svn_project_path: F:\SvnRepo\SMPlatform
+    git_project_path: F:\GitRepo\Platform
+    dir_regx: .*/branches/([^/]+).*
+
+mail:
+  sender: your_email_address
+  recipient: your_recipient_email_address
+  password: your_password

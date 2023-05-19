@@ -42,6 +42,8 @@ echo "SVN 仓库路径: $SVN_REPO_PATH"
 # 获取 SVN 仓库地址
 current_path=$(pwd)
 cd "$SVN_REPO_PATH"
+# TODO 更新 svn 项目
+# svn update
 SVN_REPO_URL=$(svn info --show-item url)
 cd "$current_path"
 echo "SVN 仓库地址: $SVN_REPO_URL"
@@ -154,7 +156,8 @@ cd "$SVN_REPO_PATH"
 svn commit -m "$commit_msg"
 cd "$current_path"
 
-# TODO 调用接口立即同步代码仓库
+# 调用接口立即同步代码仓库
+curl -X GET --location "http://localhost:917/sync/Platform"
 
 # 拒绝git提交
 echo "Git 提交已被拒绝。更改已提交到 SVN 存储库。请等待 Git 仓库同步后更新代码检查你提交的内容。"

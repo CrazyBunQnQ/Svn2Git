@@ -1,6 +1,9 @@
-package org.crazybunqnq.svn2git;
+package org.crazybunqnq.svn2git.service.impl;
 
+import org.crazybunqnq.svn2git.config.UserEmailMapConfig;
 import org.crazybunqnq.svn2git.entity.MergedSVNLogEntry;
+import org.crazybunqnq.svn2git.service.ISvnGitService;
+import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.RmCommand;
 import org.eclipse.jgit.api.Status;
@@ -8,9 +11,11 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.StoredConfig;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
 import org.tmatesoft.svn.core.*;
 import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
 import org.tmatesoft.svn.core.io.SVNRepository;
@@ -38,189 +43,60 @@ import java.util.stream.Collectors;
 
 import static org.tmatesoft.svn.core.SVNLogEntryPath.*;
 
-public class Svn2GitTest {
-    private static final Logger logger = LoggerFactory.getLogger(Svn2GitTest.class);
-
-    private final String USERNAME = "junjie";
-    private final String PASSWORD = "junjie@20230301";
-    private static final String LOG_FILE_PATH = "svn_commit.log";
+@Service
+public class SvnGitServiceImpl implements ISvnGitService {
+    private static final Logger logger = LoggerFactory.getLogger(SvnGitServiceImpl.class);
     private static final SimpleDateFormat SIMPLE_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-    private static Map<String, String> emailMap = new HashMap<>();
-
+    private static final String LOG_FILE_PATH = "svn_commit.log";
+    private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
+    private static final String MODEL_MAP_FILE = "svn_git_map.properties";
+    private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
     private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md", "config.bat", "config.sh"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
-    private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
-    private static final String FORCE_FIX_VERSION_FILE = ".fix_version";
-    private static Map<String, Long> lastFixVersion;
-    private static final String MODEL_MAP_FILE = "svn_git_map.properties";
-    private static Map<String, Map<String, Object>> modelMap = null;
     private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata", "hooks"});
     private static final List<String> BRANCH_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", "Common", "transceiver"});
     private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata"});
-    private Set<String> newModel = new HashSet<>(20);
+    private static Set<String> newModel = new HashSet<>(20);
+    public static int STATUS = 0;
 
+    @Value("${svn.username}")
+    private String username;
+    @Value("${svn.password}")
+    private String password;
 
-    static {
-        emailMap.put("baozi", "baozi@qq.com");
-    }
+    @Value("${mail.sender}")
+    private String sender;
+    @Value("${mail.recipient}")
+    private String recipient;
+    @Value("${mail.password}")
+    private String authCode;
+    @Autowired
+    private UserEmailMapConfig userEmailMap;
 
-    @Test
-    public void syncSvnCommitTest() throws SVNException, IOException {
-        String svnUrl;
-        String svnRepoPath;
-        String gitRepoPath;
-        Pattern dirRegx;
-
-        svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches";
-        svnRepoPath = "F:\\SvnRepo\\SMPlatform";
-        gitRepoPath = "F:\\GitRepo\\Platform";
-        dirRegx = Pattern.compile(".*/branches/([^/]+).*");
-        syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
-
-        svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
-        svnRepoPath = "F:\\SvnRepo\\Singularity";
-        gitRepoPath = "F:\\GitRepo\\Singularity";
-        dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
-
-        syncSvnCommit2Git(svnUrl, svnRepoPath, gitRepoPath, dirRegx);
-    }
-
-    @Test
-    public void syncSvnNextVersion2GitTest() throws IOException, SVNException {
-        final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
-        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
-
-        // 1. 获取 svn 仓库
-        SVNRepository repository = setupSvnRepository(svnUrl, USERNAME, PASSWORD);
-        // 2. 获取 svn 仓库的提交记录
-        List<SVNLogEntry> svnLogEntries = getSvnLogEntries(repository);
-        // 3. 合并连续的提交记录
-        List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
-        // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
-
-        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
-        Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
-        revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
-        long startTime;
-        String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        logger.info("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
-        startTime = System.currentTimeMillis();
-        try {
-            updateSvnToRevision(svnRepoPath, revision);
-            logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.exit(1);
+    @Override
+    public void test() {
+        if (STATUS != 0) {
+            return;
         }
-
-
-        startTime = System.currentTimeMillis();
-        Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
-
-        logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
+        STATUS = 1;
         try {
-            long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
-            logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
-            logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.exit(1);
+            Thread.sleep(1000 * 90);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
+        STATUS = 0;
     }
 
-    @Test
-    public void getSvnCommitLogTest() throws SVNException, IOException {
-        final String svnUrl = "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-
-        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-        // 1. 获取 svn 仓库
-        SVNRepository repository = setupSvnRepository(svnUrl, USERNAME, PASSWORD);
-        // 2. 获取 svn 仓库的提交记录
-        List<SVNLogEntry> svnLogEntries = getSvnLogEntries(repository);
-        // 3. 合并连续的提交记录
-        List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
-        // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
-    }
-
-    @Test
-    public void updateSvnTest() throws IOException {
-        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-
-        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, 2264L);
-        long startTime;
-        String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        logger.info("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
-        startTime = System.currentTimeMillis();
-        try {
-            updateSvnToRevision(svnRepoPath, revision);
-            logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.exit(1);
-        }
-    }
-
-    @Test
-    public void readChangesByBranchFromLogFileTest() throws IOException {
-        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
-        long revision = 2252L;
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-
-        Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
-        logger.info("涉及 " + changesByBranch.size() + " 个分支到");
-    }
-
-    @Test
-    public void commit2GitTest() throws IOException, SVNException {
-        final String svnRepoPath = "F:\\SvnRepo\\Singularity";
-        final String gitRepoPath = "F:\\GitRepo\\Singularity";
-        final Pattern dirRegx = Pattern.compile(".*/Singularity/([^/]+).*");
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
-
-        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, 2264L);
-        long startTime;
-
-        String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-        startTime = System.currentTimeMillis();
-        Map<String, List<SVNLogEntryPath>> changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
-
-        logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
-        try {
-            long gitCommitStartTime = System.currentTimeMillis();
-            copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
-            logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
-            logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.exit(1);
-        }
-    }
-
+    @Override
     public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) throws SVNException, IOException {
-        lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
-        modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
+        if (STATUS != 0) {
+            return;
+        }
+        STATUS = 1;
+
+        Map<String, Map<String, Object>> modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
         // 1. 获取 svn 仓库
-        SVNRepository repository = setupSvnRepository(svnUrl, USERNAME, PASSWORD);
+        SVNRepository repository = setupSvnRepository(svnUrl, username, password);
         // 2. 获取 svn 仓库的提交记录
         List<SVNLogEntry> svnLogEntries = getSvnLogEntries(repository);
         // 3. 合并连续的提交记录
@@ -239,7 +115,7 @@ public class Svn2GitTest {
             String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
             Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-            logger.info("开始更新 svn 版本到 " + revision + "，作者 " + author + "，提交信息 " + commitMsg);
+            logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + "版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
             startTime = System.currentTimeMillis();
             try {
                 updateSvnToRevision(svnRepoPath, revision);
@@ -259,13 +135,15 @@ public class Svn2GitTest {
                 long gitCommitStartTime = System.currentTimeMillis();
                 copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
                 logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
-                logger.info("同步 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
+                logger.info("同步 " + svnRepoPath + " 项目 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
             } catch (Exception e) {
                 e.printStackTrace();
                 System.exit(1);
             }
             modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
         }
+
+        STATUS = 0;
     }
 
     /**
@@ -563,7 +441,7 @@ public class Svn2GitTest {
                                     if (regxStr.startsWith("new:")) {
                                         logger.info("    涉及独立模块 " + model + " 分支: " + branch);
                                     } else {
-                                        logger.info("    涉及分支: " + branch);
+                                        logger.info("    涉及分支1: " + branch);
                                     }
                                 }
                             } else {
@@ -571,7 +449,7 @@ public class Svn2GitTest {
                                 if (entryPath.getType() == TYPE_DELETED) {
                                     continue;
                                 }
-                                // 遍历文件夹，全量添加分支
+                                // 遍历文件夹，全量添加分支 TODO 如果是没有分支的目录，则只取 dev 分支
                                 String modelPath = svnRepoPath + File.separator + model;
                                 File modelDir = new File(modelPath);
                                 File[] modelBranchDirs = modelDir.listFiles();
@@ -591,7 +469,7 @@ public class Svn2GitTest {
                                         if (regxStr.startsWith("new:")) {
                                             logger.info("涉及独立模块 " + model + " 分支: " + branch);
                                         } else {
-                                            logger.info("涉及分支: " + branch);
+                                            logger.info("涉及分支2: " + branch);
                                         }
                                     }
                                     // changesByBranch.computeIfAbsent(branch, k -> new ArrayList<>()).add(newEntryPath);
@@ -655,10 +533,12 @@ public class Svn2GitTest {
      * @throws IOException
      * @throws GitAPIException
      */
-    private static void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
+    private void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
+        Map<String, Long> lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
         Git git = Git.open(new File(gitRepoPath));
         // 设置提交用户
         StoredConfig config = git.getRepository().getConfig();
+        Map<String, String> emailMap = userEmailMap.getUserMap();
         config.setString("user", null, "name", author);
         config.setString("user", null, "email", emailMap.get(author));
         PersonIdent personIdent = new PersonIdent(new PersonIdent(author, emailMap.get(author)), commitDate == null ? new Date() : commitDate);
@@ -1027,7 +907,7 @@ public class Svn2GitTest {
         }
     }
 
-    private static Map<String, Map<String, Object>> checkoutFromMasterAndReloadModelMap(String gitRepoPath, Map<String, Map<String, Object>> modelMap, boolean hasModel, Git git, String branch) throws GitAPIException {
+    private Map<String, Map<String, Object>> checkoutFromMasterAndReloadModelMap(String gitRepoPath, Map<String, Map<String, Object>> modelMap, boolean hasModel, Git git, String branch) throws GitAPIException {
         if (!"master".equals(branch)) {
             git.checkout().addPath(".gitignore").setForced(true).setStartPoint("master").call();
             git.checkout().addPath("svn_git_map.properties").setForced(true).setStartPoint("master").call();
@@ -1048,7 +928,7 @@ public class Svn2GitTest {
      * @param branch 目标分支
      * @return 是否创建新分支
      */
-    private static boolean checkoutOrCreateBranch(Git git, String branch) throws GitAPIException, IOException {
+    private boolean checkoutOrCreateBranch(Git git, String branch) throws GitAPIException, IOException {
         String currentBranch = git.getRepository().getBranch();
         logger.info("    当前分支：" + currentBranch + ", 目标分支：" + branch);
         if (currentBranch.equals(branch)) {
@@ -1063,8 +943,7 @@ public class Svn2GitTest {
             } catch (Exception ignored) {
             }
             logger.info("    创建新分支：" + branch);
-            // git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
-            git.checkout().setCreateBranch(true).setName(branch).call();
+            git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
             return true;
         }
     }
@@ -1101,8 +980,7 @@ public class Svn2GitTest {
         return Files.deleteIfExists(file.toPath());
     }
 
-    public static Map<String, Map<String, Object>> readModelMap(String filePath) {
-
+    private Map<String, Map<String, Object>> readModelMap(String filePath) {
         try (Scanner scanner = new Scanner(new File(filePath))) {
             Map<String, Map<String, Object>> modelMap = new HashMap<>();
             while (scanner.hasNextLine()) {
@@ -1138,11 +1016,8 @@ public class Svn2GitTest {
         return null;
     }
 
-    public static void sendMail(String title, String content) throws Exception {
+    public void sendMail(String title, String content) throws Exception {
         String host = "smtp.qq.com";
-        String sender = "sender@qq.com";
-        String recipient = "recipient@qq.com";
-        String authCode = "授权码";
 
         Properties props = new Properties();
         props.put("mail.smtp.host", host);
@@ -1165,7 +1040,7 @@ public class Svn2GitTest {
         Transport.send(message);
     }
 
-    public static Map<String, Long> readFixVersion(String filePath) {
+    private Map<String, Long> readFixVersion(String filePath) {
         Map<String, Long> lastFixVersion = new HashMap<>();
 
         try (Scanner scanner = new Scanner(new File(filePath))) {
@@ -1186,7 +1061,7 @@ public class Svn2GitTest {
         return lastFixVersion;
     }
 
-    public static void writeFixVersion(String filePath, Map<String, Long> lastFixVersion) {
+    private void writeFixVersion(String filePath, Map<String, Long> lastFixVersion) {
         try (FileWriter fileWriter = new FileWriter(filePath); BufferedWriter writer = new BufferedWriter(fileWriter)) {
             for (Map.Entry<String, Long> entry : lastFixVersion.entrySet()) {
                 writer.write(entry.getKey() + "=" + entry.getValue());
