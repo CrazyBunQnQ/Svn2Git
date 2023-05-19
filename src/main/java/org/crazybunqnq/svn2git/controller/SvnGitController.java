@@ -1,5 +1,6 @@
 package org.crazybunqnq.svn2git.controller;
 
+import org.crazybunqnq.svn2git.config.SvnGitProjectMapConfig;
 import org.crazybunqnq.svn2git.entity.SvnGitConfig;
 import org.crazybunqnq.svn2git.service.ISvnGitService;
 import org.crazybunqnq.svn2git.service.impl.SvnGitServiceImpl;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.tmatesoft.svn.core.SVNException;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -23,21 +23,9 @@ import java.util.regex.Pattern;
 @RequestMapping("/sync")
 public class SvnGitController {
     private static final Logger logger = LoggerFactory.getLogger(SvnGitController.class);
-    private static Map<String, SvnGitConfig> svnGitConfigMap = new HashMap<>(2);
 
-    // TODO 通过配置读取
-    static {
-        svnGitConfigMap.put("Singularity",
-                new SvnGitConfig("https://192.168.0.182:8443/repo/codes/SafeMg/Singularity",
-                        "F:\\SvnRepo\\Singularity",
-                        "F:\\GitRepo\\Singularity",
-                        ".*/Singularity/([^/]+).*"));
-        svnGitConfigMap.put("Platform",
-                new SvnGitConfig("https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches",
-                        "F:\\SvnRepo\\SMPlatform",
-                        "F:\\GitRepo\\Platform",
-                        ".*/branches/([^/]+).*"));
-    }
+    @Autowired
+    private SvnGitProjectMapConfig svnGitProjectMaping;
 
     @Autowired
     private ISvnGitService svnGitService;
@@ -49,6 +37,7 @@ public class SvnGitController {
         }
 
         try {
+            Map<String, SvnGitConfig> svnGitConfigMap = this.svnGitProjectMaping.getSvnGitMapping();
             if (StringUtils.isEmptyOrNull(repoName)) {
                 for (String key : svnGitConfigMap.keySet()) {
                     SvnGitConfig svnGitConfig = svnGitConfigMap.get(key);

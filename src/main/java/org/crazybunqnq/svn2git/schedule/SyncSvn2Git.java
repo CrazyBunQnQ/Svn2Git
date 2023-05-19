@@ -1,5 +1,6 @@
 package org.crazybunqnq.svn2git.schedule;
 
+import org.crazybunqnq.svn2git.config.SvnGitProjectMapConfig;
 import org.crazybunqnq.svn2git.entity.SvnGitConfig;
 import org.crazybunqnq.svn2git.service.ISvnGitService;
 import org.crazybunqnq.svn2git.service.impl.SvnGitServiceImpl;
@@ -10,9 +11,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.tmatesoft.svn.core.SVNException;
 
-import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -24,23 +23,9 @@ public class SyncSvn2Git {
     @Autowired
     private ISvnGitService svnGitService;
 
-    private static Map<String, SvnGitConfig> svnGitConfigMap = new HashMap<>(2);
+    @Autowired
+    private SvnGitProjectMapConfig svnGitProjectMaping;
 
-    // TODO 通过配置读取
-    static {
-        svnGitConfigMap.put("Singularity",
-                new SvnGitConfig("https://192.168.0.182:8443/repo/codes/SafeMg/Singularity",
-                        "F:\\SvnRepo\\Singularity",
-                        "F:\\GitRepo\\Singularity",
-                        ".*/Singularity/([^/]+).*"));
-        svnGitConfigMap.put("Platform",
-                new SvnGitConfig("https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches",
-                        "F:\\SvnRepo\\SMPlatform",
-                        "F:\\GitRepo\\Platform",
-                        ".*/branches/([^/]+).*"));
-    }
-
-    @PostConstruct
     @Scheduled(cron = "0 0/30 * * * ?")
     public void changeTime() {
         if (SvnGitServiceImpl.STATUS != 0) {
@@ -51,6 +36,7 @@ public class SyncSvn2Git {
         svnGitService.test();
 
         try {
+            Map<String, SvnGitConfig> svnGitConfigMap = svnGitProjectMaping.getSvnGitMapping();
             for (String key : svnGitConfigMap.keySet()) {
                 SvnGitConfig svnGitConfig = svnGitConfigMap.get(key);
                 svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(), Pattern.compile(svnGitConfig.getDirRegx()));
