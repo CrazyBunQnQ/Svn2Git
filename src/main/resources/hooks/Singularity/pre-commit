@@ -42,8 +42,8 @@ echo "SVN 仓库路径: $SVN_REPO_PATH"
 # 获取 SVN 仓库地址
 current_path=$(pwd)
 cd "$SVN_REPO_PATH"
-# TODO 更新 svn 项目
-# svn update
+# 更新 svn 项目
+svn update
 SVN_REPO_URL=$(svn info --show-item url)
 cd "$current_path"
 echo "SVN 仓库地址: $SVN_REPO_URL"
@@ -78,6 +78,8 @@ git_svn_version=${git_svn_version##* }
 # 如果 git_svn_version 不等于 remote_svn_version 则提示先同步 svn 仓库并退出
 if [ "$git_svn_version" != "$remote_svn_version" ]; then
   echo "当前 git 项目版本 $git_svn_version 落后于 SVN 项目版本 $remote_svn_version。请先等待远程仓库同步并更新代码后再试。"
+  # 调用接口立即同步代码仓库
+  curl -s -X GET --location "http://192.168.1.58:917/sync/Singularity"
   exit 1
 fi
 
@@ -86,10 +88,8 @@ echo "========== 新增或修改的文件 =========="
 # 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
 deleted_files=$(git diff --cached --name-only --diff-filter=D)
-echo "暂存区文件列表:"
-echo "$staged_files"
-echo "删除文件列表:"
-echo "$deleted_files"
+echo "暂存区文件列表: [$staged_files]"
+echo "删除文件列表: [$deleted_files]"
 
 # 如果没有暂存也没有删除的文件，直接退出
 if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
@@ -102,8 +102,8 @@ for file in $staged_files; do
   echo "file: $file"
   is_in_white_list "$file"
   if [ $? -eq 1 ]; then
-      echo "不提交 $file"
-      continue
+    echo "不提交 $file"
+    continue
   fi
   # AtlasCenter/docker/Dockerfile
   # 截取 file 字符串第一个 / 左边的部分
@@ -188,7 +188,7 @@ svn commit -m "$commit_msg"
 cd "$current_path"
 
 # 调用接口立即同步代码仓库
-curl -X GET --location "http://localhost:917/sync/Singularity"
+curl -s -X GET --location "http://192.168.1.58:917/sync/Singularity"
 
 # 拒绝git提交
 echo "Git 提交已被拒绝。更改已提交到 SVN 存储库。请等待 Git 仓库同步后更新代码检查你提交的内容。"
