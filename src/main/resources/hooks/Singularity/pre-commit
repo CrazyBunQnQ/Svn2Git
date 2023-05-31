@@ -12,6 +12,35 @@ is_in_white_list() {
   return 0
 }
 
+all_in_white_list() {
+  # 默认将 all_in 设置为 1
+  local all_in=1
+
+  local array=("$@")
+  # 元素个数为 0 返回 1
+  if [ ${#array[@]} -eq 0 ]; then
+    return $all_in
+  fi
+
+  # 遍历另一个数组中的所有元素
+  for item in "${array[@]}"; do
+    if [ "$item" == "" ]; then
+      echo "跳过空字符串"
+      continue
+    fi
+    is_in_white_list "$item"
+    if [ $? -eq 1 ]; then
+      continue
+    else
+      all_in=0
+      echo "包含 svn 仓库的文件, 不允许提交到 Git"
+      break
+    fi
+  done
+
+  return $all_in
+}
+
 # 获取本次提交信息
 commit_msg_path=$(eval echo ~"${SUDO_USER}")/AppData/Local/Temp/git-commit-msg-.txt
 commit_msg=$(git log -1 --pretty=%B)
@@ -95,6 +124,21 @@ echo "删除文件列表: [$deleted_files]"
 if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
   echo "没有新增或修改的文件"
   exit 1
+fi
+
+# 如果当前在 master 分支并且所有文件都是白名单中的文件则允许提交
+if [ "$current_branch" == "master" ]; then
+  readarray -t staged_files_array <<< "$staged_files"
+  all_in_white_list "${staged_files_array[@]}"
+  staged_result=$?
+  readarray -t deleted_files_array <<< "$deleted_files"
+  all_in_white_list "${deleted_files[@]}"
+  deleted_result=$?
+  # 判断是否都返回 1，然后结束脚本
+  if [[ $staged_result -eq 1 && $deleted_result -eq 1 ]]; then
+    # 所有文件都在白名单中，允许提交
+    exit 0
+  fi
 fi
 
 # 使用patch模式将Git暂存区的更改应用于SVN工作副本
