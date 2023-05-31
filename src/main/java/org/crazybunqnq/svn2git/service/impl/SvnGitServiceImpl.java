@@ -70,6 +70,8 @@ public class SvnGitServiceImpl implements ISvnGitService {
     private String recipient;
     @Value("${mail.password}")
     private String authCode;
+    @Value("${mail.host}")
+    private String host;
     @Autowired
     private UserEmailMapConfig userEmailMap;
 
@@ -90,6 +92,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
     @Override
     public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) throws SVNException, IOException {
         if (STATUS != 0) {
+            logger.info("同步正在进行中...");
             return;
         }
         STATUS = 1;
@@ -109,7 +112,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
             Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
             revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
             if (revision < 0) {
-                logger.info("Git 版本 " + curSvnVersionInGit + " 之后没有需要同步的提交记录");
+                logger.info(svnRepoPath + " 项目在 " + curSvnVersionInGit + " 版本之后没有需要同步的提交记录");
                 break;
             }
             String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
@@ -121,8 +124,12 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 updateSvnToRevision(svnRepoPath, revision);
                 logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
             } catch (Exception e) {
+                try {
+                    sendMail("Svn2Git", "svn 项目 " + svnRepoPath + " 更新失败: " + e.getMessage());
+                } catch (Exception ignored) {
+                }
                 e.printStackTrace();
-                System.exit(1);
+                break;
             }
             Map<String, List<SVNLogEntryPath>> changesByBranch;
             if (modelMap == null) {
@@ -720,9 +727,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
-                        git.commit().setMessage("SVN vision " + version).setCommitter(personIdent).call();
+                        git.commit().setMessage("SVN version " + version).setCommitter(personIdent).call();
                     } else {
-                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).setCommitter(personIdent).call();
+                        git.commit().setMessage("SVN version " + version + ": " + commitMsg).setCommitter(personIdent).call();
                     }
                 }
             } else {
@@ -861,9 +868,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
-                        git.commit().setMessage("SVN vision " + version).setCommitter(personIdent).call();
+                        git.commit().setMessage("SVN version " + version).setCommitter(personIdent).call();
                     } else {
-                        git.commit().setMessage("SVN vision " + version + ": " + commitMsg).setCommitter(personIdent).call();
+                        git.commit().setMessage("SVN version " + version + ": " + commitMsg).setCommitter(personIdent).call();
                     }
                 }
                 lastFixVersion.put(branch, version);
@@ -942,8 +949,13 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 sendMail("Svn2Git", git.getRepository().toString() + " 将要创建新分支: " + branch);
             } catch (Exception ignored) {
             }
-            logger.info("    创建新分支：" + branch);
-            git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
+            try {
+                // 尝试检出远程分支
+                git.checkout().setCreateBranch(true).setName(branch).setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).setStartPoint("origin/" + branch).call();
+            } catch (RefNotFoundException rnfe) {
+                logger.info("    远程分支未找到，直接创建新分支：" + branch);
+                git.checkout().setCreateBranch(true).setName(branch).call();
+            }
             return true;
         }
     }
@@ -1017,7 +1029,10 @@ public class SvnGitServiceImpl implements ISvnGitService {
     }
 
     public void sendMail(String title, String content) throws Exception {
-        String host = "smtp.qq.com";
+        sendMail(title, content, null);
+    }
+
+    public void sendMail(String title, String content, String to) throws Exception {
 
         Properties props = new Properties();
         props.put("mail.smtp.host", host);
@@ -1032,7 +1047,10 @@ public class SvnGitServiceImpl implements ISvnGitService {
 
         Message message = new MimeMessage(session);
         message.setFrom(new InternetAddress(sender));
-        message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+        if (to == null) {
+            to = recipient;
+        }
+        message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to));
         message.setSubject(title);
 
         message.setContent(content, "text/html;charset=UTF-8");
