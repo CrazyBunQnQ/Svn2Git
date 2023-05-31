@@ -30,7 +30,7 @@ public class SvnGitController {
     @Autowired
     private ISvnGitService svnGitService;
 
-    @GetMapping("/{repoName}")
+    @GetMapping("/{repoName}")//TODO 手动调用后同步完成发邮件提醒
     public String send(@PathVariable("repoName") String repoName) {
         if (SvnGitServiceImpl.STATUS != 0) {
             return "仓库同步任务已在进行中, 请稍后再试";
