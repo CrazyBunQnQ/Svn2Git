@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# 当前分支
+current_branch=$(git branch --show-current)
+
+# 如果 current_branch 以 local_ 开头则允许提交
+if [[ $current_branch == local_* ]]; then
+  echo "提交本地分支: $current_branch"
+  exit 0
+fi
+
 # 不提交到 Svn 的目录或文件
 white_list=("README.md" "hooks/pre-commit" "hooks/pre-push" ".gitignore" "config.bat" "config.sh")
 
@@ -82,7 +91,6 @@ echo "========== 检查 git 版本是否最新 =========="
 # 确保git分支是最新的
 git fetch
 
-current_branch=$(git branch --show-current)
 local_commit=$(git rev-parse "$current_branch")
 remote_commit=$(git rev-parse "origin/$current_branch")
 echo "本地分支: $current_branch"

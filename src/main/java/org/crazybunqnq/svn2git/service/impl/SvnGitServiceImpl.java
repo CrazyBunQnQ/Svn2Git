@@ -92,7 +92,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
 
     @Override
     @Async("syncSvnToGitExecutor")
-    public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) throws SVNException, IOException {
+    public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) {
         if (STATUS != 0) {
             logger.info("同步正在进行中...");
             return;
@@ -100,59 +100,66 @@ public class SvnGitServiceImpl implements ISvnGitService {
         STATUS = 1;
 
         Map<String, Map<String, Object>> modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
-        // 1. 获取 svn 仓库
-        SVNRepository repository = setupSvnRepository(svnUrl, username, password);
-        // 2. 获取 svn 仓库的提交记录
-        List<SVNLogEntry> svnLogEntries = getSvnLogEntries(repository);
-        // 3. 合并连续的提交记录
-        List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
-        // 4. 将合并后的提交记录写入文件
-        writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
-        long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
-        long startTime;
-        while (revision > 0) {
-            Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
-            revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
-            if (revision < 0) {
-                logger.info(svnRepoPath + " 项目在 " + curSvnVersionInGit + " 版本之后没有需要同步的提交记录");
-                break;
-            }
-            String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-            String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-            Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-            logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + "版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
-            startTime = System.currentTimeMillis();
-            try {
-                updateSvnToRevision(svnRepoPath, revision);
-                logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
-            } catch (Exception e) {
-                try {
-                    sendMail("Svn2Git", "svn 项目 " + svnRepoPath + " 更新失败: " + e.getMessage());
-                } catch (Exception ignored) {
+        SVNRepository repository;
+        try {
+            // 1. 获取 svn 仓库
+            repository = setupSvnRepository(svnUrl, username, password);
+            // 2. 获取 svn 仓库的提交记录
+            List<SVNLogEntry> svnLogEntries = getSvnLogEntries(repository);
+            // 3. 合并连续的提交记录
+            List<MergedSVNLogEntry> mergedLogEntries = mergeConsecutiveCommits(svnLogEntries);
+            // 4. 将合并后的提交记录写入文件
+            writeSvnLogEntriesToFile(mergedLogEntries, gitRepoPath);
+            long revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, null);
+            long startTime;
+            while (revision > 0) {
+                Long curSvnVersionInGit = getCurrentSvnVersionFromGit(gitRepoPath);
+                revision = readRevisionFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, curSvnVersionInGit);
+                if (revision < 0) {
+                    logger.info(svnRepoPath + " 项目在 " + curSvnVersionInGit + " 版本之后没有需要同步的提交记录");
+                    break;
                 }
-                e.printStackTrace();
-                break;
+                String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+                String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+                Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
+                logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + "版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
+                startTime = System.currentTimeMillis();
+                try {
+                    updateSvnToRevision(svnRepoPath, revision);
+                    logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+                } catch (Exception e) {
+                    try {
+                        sendMail("Svn2Git", "svn 项目 " + svnRepoPath + " 更新失败: " + e.getMessage());
+                    } catch (Exception ignored) {
+                    }
+                    e.printStackTrace();
+                    break;
+                }
+                Map<String, List<SVNLogEntryPath>> changesByBranch;
+                if (modelMap == null) {
+                    changesByBranch = readChangesByBranchFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx);
+                } else {
+                    changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
+                }
+                logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
+                try {
+                    long gitCommitStartTime = System.currentTimeMillis();
+                    copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
+                    logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
+                    logger.info("同步 " + svnRepoPath + " 项目 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    System.exit(1);
+                }
+                modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
             }
-            Map<String, List<SVNLogEntryPath>> changesByBranch;
-            if (modelMap == null) {
-                changesByBranch = readChangesByBranchFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx);
-            } else {
-                changesByBranch = readChangesByBranchFromLogFile(svnRepoPath, gitRepoPath + File.separator + LOG_FILE_PATH, revision, dirRegx, modelMap);
-            }
-            logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
-            try {
-                long gitCommitStartTime = System.currentTimeMillis();
-                copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
-                logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
-                logger.info("同步 " + svnRepoPath + " 项目 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
-            } catch (Exception e) {
-                e.printStackTrace();
-                System.exit(1);
-            }
-            modelMap = readModelMap(gitRepoPath + File.separator + MODEL_MAP_FILE);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (SVNException e) {
+            throw new RuntimeException(e);
+        } finally {
+            STATUS = 0;
         }
-
-        STATUS = 0;
     }
 
     /**
@@ -201,7 +208,11 @@ public class SvnGitServiceImpl implements ISvnGitService {
             } else {
                 previousEntry.setRevision(logEntry.getRevision());
                 previousEntry.setDate(logEntry.getDate());
-                previousEntry.setMessage(previousEntry.getMessage() + "\n" + logEntry.getMessage());
+                String message = previousEntry.getMessage();
+                if (message != null && !message.isEmpty() && !message.endsWith("; ")) {
+                    message += "; ";
+                }
+                previousEntry.setMessage(message + "\n" + logEntry.getMessage());
 
                 for (Map.Entry<String, SVNLogEntryPath> entry : logEntry.getChangedPaths().entrySet()) {
                     previousEntry.getChangedPaths().put(entry.getKey(), entry.getValue());

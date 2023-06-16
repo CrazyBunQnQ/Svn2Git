@@ -8,10 +8,7 @@ import org.eclipse.jgit.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.tmatesoft.svn.core.SVNException;
 
 import java.io.IOException;
@@ -31,14 +28,14 @@ public class SvnGitController {
     private ISvnGitService svnGitService;
 
     @GetMapping("/{repoName}")//TODO 手动调用后同步完成发邮件提醒
-    public String send(@PathVariable("repoName") String repoName) {
+    public String send(@PathVariable(value = "repoName", required = false) String repoName, @RequestParam(value = "mail", required = false) String mail) {
         if (SvnGitServiceImpl.STATUS != 0) {
             return "仓库同步任务已在进行中, 请稍后再试";
         }
 
         try {
             Map<String, SvnGitConfig> svnGitConfigMap = this.svnGitProjectMaping.getSvnGitMapping();
-            if (StringUtils.isEmptyOrNull(repoName)) {
+            if (StringUtils.isEmptyOrNull(repoName) || "all".equals(repoName.toLowerCase())) {
                 for (String key : svnGitConfigMap.keySet()) {
                     SvnGitConfig svnGitConfig = svnGitConfigMap.get(key);
                     svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(), Pattern.compile(svnGitConfig.getDirRegx()));
