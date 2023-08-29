@@ -561,6 +561,12 @@ public class SvnGitServiceImpl implements ISvnGitService {
         Map<String, String> emailMap = userEmailMap.getUserMap();
         config.setString("user", null, "name", author);
         config.setString("user", null, "email", emailMap.get(author));
+        if (emailMap.get(author) == null) {
+            try {
+                sendMail("Svn2Git", "出现新的提交人: " + author + ", 请及时配置该用户的邮件");
+            } catch (Exception ignored) {
+            }
+        }
         PersonIdent personIdent = new PersonIdent(new PersonIdent(author, emailMap.get(author)), commitDate == null ? new Date() : commitDate);
         // 将 changesByBranch 的 key 尾号进行排序
         List<String> sortedBranches = changesByBranch.keySet().stream().sorted().collect(Collectors.toList());
