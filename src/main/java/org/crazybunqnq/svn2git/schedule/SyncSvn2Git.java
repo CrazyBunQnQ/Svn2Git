@@ -26,7 +26,7 @@ public class SyncSvn2Git {
     @Autowired
     private SvnGitProjectMapConfig svnGitProjectMaping;
 
-    @Scheduled(cron = "0 0/15 * * * ?")
+    @Scheduled(cron = "0 0/5 * * * ?")
     public void changeTime() {
         if (SvnGitServiceImpl.STATUS != 0) {
             logger.info("同步任务进行中，本次定时同步跳过");
