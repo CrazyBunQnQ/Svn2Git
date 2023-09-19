@@ -1,5 +1,7 @@
 package org.crazybunqnq.svn2git.service.impl;
 
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecutor;
 import org.crazybunqnq.svn2git.config.UserEmailMapConfig;
 import org.crazybunqnq.svn2git.entity.MergedSVNLogEntry;
 import org.crazybunqnq.svn2git.service.ISvnGitService;
@@ -17,13 +19,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.tmatesoft.svn.core.*;
+import org.tmatesoft.svn.core.SVNException;
+import org.tmatesoft.svn.core.SVNLogEntry;
+import org.tmatesoft.svn.core.SVNLogEntryPath;
+import org.tmatesoft.svn.core.SVNURL;
 import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
 import org.tmatesoft.svn.core.io.SVNRepository;
 import org.tmatesoft.svn.core.io.SVNRepositoryFactory;
-import org.tmatesoft.svn.core.wc.SVNClientManager;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc.SVNUpdateClient;
 import org.tmatesoft.svn.core.wc.SVNWCUtil;
 
 import javax.mail.*;
@@ -361,11 +363,14 @@ public class SvnGitServiceImpl implements ISvnGitService {
      * @param revision
      * @throws SVNException
      */
-    private void updateSvnToRevision(String workingCopyPath, long revision) throws SVNException {
-        SVNClientManager clientManager = SVNClientManager.newInstance();
-        SVNUpdateClient updateClient = clientManager.getUpdateClient();
-        updateClient.setIgnoreExternals(false);
-        updateClient.doUpdate(Paths.get(workingCopyPath).toFile(), SVNRevision.create(revision), SVNDepth.INFINITY, true, true);
+    private int updateSvnToRevision(String workingCopyPath, long revision) throws IOException {
+        CommandLine cmd = new CommandLine("svn");
+        cmd.addArgument("update");
+        cmd.addArgument("-r");
+        cmd.addArgument(String.valueOf(revision));
+        cmd.addArgument(workingCopyPath);
+        DefaultExecutor executor = new DefaultExecutor();
+        return  executor.execute(cmd);
     }
 
     /**
@@ -542,6 +547,13 @@ public class SvnGitServiceImpl implements ISvnGitService {
         return matcher.find() ? matcher.group(1) : "master";
     }
 
+    private int gitAddAll(File gitRepoPath) throws IOException {
+        CommandLine commandLine = CommandLine.parse("git add .");
+        DefaultExecutor executor = new DefaultExecutor();
+        executor.setWorkingDirectory(gitRepoPath);
+        return executor.execute(commandLine);
+    }
+
     /**
      * 复制 SVN 的变更提交到 Git
      *
@@ -555,7 +567,8 @@ public class SvnGitServiceImpl implements ISvnGitService {
      */
     private void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
         Map<String, Long> lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
-        Git git = Git.open(new File(gitRepoPath));
+        File gitWorkingDir = new File(gitRepoPath);
+        Git git = Git.open(gitWorkingDir);
         // 设置提交用户
         StoredConfig config = git.getRepository().getConfig();
         Map<String, String> emailMap = userEmailMap.getUserMap();
@@ -721,8 +734,12 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     logger.info("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
                 }
                 starttime = System.currentTimeMillis();
-                git.add().addFilepattern(".").call();
-                git.rm().setCached(true).addFilepattern(".").call();
+                int addResult = gitAddAll(gitWorkingDir);
+                if (addResult != 0) {
+                    logger.error("        " + branch + " 分支 git add . 失败");
+                }
+                // git.add().addFilepattern(".").call();
+                // git.rm().setCached(true).addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> uncommittedChanges = status.getUncommittedChanges();
                 Set<String> untracked = status.getUntracked();
