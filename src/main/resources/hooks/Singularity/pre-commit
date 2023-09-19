@@ -8,6 +8,11 @@ if [[ $current_branch == local_* ]]; then
   echo "提交本地分支: $current_branch"
   exit 0
 fi
+# 如果 current_branch 是空则允许提交
+if [[ $current_branch == "" ]]; then
+  echo "提交本地分支: $current_branch"
+  exit 0
+fi
 
 # 不提交到 Svn 的目录或文件
 white_list=("README.md" "hooks/pre-commit" "hooks/pre-push" ".gitignore" "config.bat" "config.sh")
@@ -106,8 +111,10 @@ echo "↓"
 echo "========== 检查 svn、git 版本同步状态 =========="
 # 获取远程 svn 最新版本号
 remote_svn_version=$(svn info "$SVN_REPO_URL" | grep "Last Changed Rev" | awk '{print $4}')
+# 获取最近 10 次提交记录
+git_log=$(git log -n 10 --branches --no-merges --format=%s)
 # 获取 git 项目已同步的 svn 版本号
-git_svn_version=$(git log -n 1 --branches --no-merges --format=%s)
+git_svn_version=$(echo "$git_log" | grep 'SVN version' | head -n 1)
 # 从 git_svn_version 截取 ":" 左边的部分
 git_svn_version=${git_svn_version%%:*}
 # 从 git_svn_version 截取最后一个 " " 右边的部分
@@ -121,10 +128,14 @@ if [ "$git_svn_version" != "$remote_svn_version" ]; then
 fi
 
 echo "↓"
-echo "========== 新增或修改的文件 =========="
+echo "========== 新增或修改或移动的文件 =========="
 # 获取git暂存区(staged)中的文件列表
-staged_files=$(git diff --cached --name-only --diff-filter=ACM)
-deleted_files=$(git diff --cached --name-only --diff-filter=D)
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+# 删除的文件
+git diff --cached --name-only --diff-filter=D > deleted_files.cache
+# 被移动的文件
+git diff --cached --name-status --diff-filter=R | awk '{print $2}' >> deleted_files.cache
+deleted_files=$(cat deleted_files.cache)
 echo "暂存区文件列表: [$staged_files]"
 echo "删除文件列表: [$deleted_files]"
 
