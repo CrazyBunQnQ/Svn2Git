@@ -34,3 +34,4 @@ build/
 *.log
 /.svn_update
 /.mvn/
+/logs/
