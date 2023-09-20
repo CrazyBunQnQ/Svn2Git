@@ -124,7 +124,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 String author = readAuthorFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
                 String commitMsg = readMessageFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
                 Date commitDate = readDateFromLogFile(gitRepoPath + File.separator + LOG_FILE_PATH, revision);
-                logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + "版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
+                logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + " 版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
                 startTime = System.currentTimeMillis();
                 try {
                     updateSvnToRevision(svnRepoPath, revision);
@@ -879,8 +879,12 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     logger.info("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
                 }
                 starttime = System.currentTimeMillis();
-                git.rm().setCached(true).addFilepattern(".").call();
-                git.add().addFilepattern(".").call();
+                int addResult = gitAddAll(gitWorkingDir);
+                if (addResult != 0) {
+                    logger.error("        " + branch + " 分支 git add . 失败");
+                }
+                // git.rm().setCached(true).addFilepattern(".").call();
+                // git.add().addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> uncommittedChanges = status.getUncommittedChanges();
                 Set<String> untracked = status.getUntracked();
