@@ -738,29 +738,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 if (addResult != 0) {
                     logger.error("        " + branch + " 分支 git add . 失败");
                 }
-                // git.add().addFilepattern(".").call();
-                // git.rm().setCached(true).addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> uncommittedChanges = status.getUncommittedChanges();
-                Set<String> untracked = status.getUntracked();
-                Set<String> modified = status.getModified();
-                Set<String> removed = status.getRemoved();
-                Set<String> missing = status.getMissing();
-                if (missing.size() > 0) {
-                    RmCommand rm = git.rm();
-                    for (String missingFile : missing) {
-                        rm.addFilepattern(missingFile);
-                    }
-                    rm.call();
-                }
                 logger.info("        " + branch + " 分支 git add . 耗时1：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
-                if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
-                    try {
-                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本存在未跟踪文件");
-                    } catch (Exception ignored) {
-                    }
-                    logger.info("        untracked: " + untracked);
-                }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
                         git.commit().setMessage("SVN version " + version).setCommitter(personIdent).call();
@@ -883,29 +863,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 if (addResult != 0) {
                     logger.error("        " + branch + " 分支 git add . 失败");
                 }
-                // git.rm().setCached(true).addFilepattern(".").call();
-                // git.add().addFilepattern(".").call();
                 Status status = git.status().call();
                 Set<String> uncommittedChanges = status.getUncommittedChanges();
-                Set<String> untracked = status.getUntracked();
-                Set<String> modified = status.getModified();
-                Set<String> removed = status.getRemoved();
-                Set<String> missing = status.getMissing();
-                if (missing.size() > 0) {
-                    RmCommand rm = git.rm();
-                    for (String missingFile : missing) {
-                        rm.addFilepattern(missingFile);
-                    }
-                    rm.call();
-                }
                 logger.info("        " + branch + " 分支 git add . 耗时2：" + (System.currentTimeMillis() - starttime) / 1000 + " 秒");
-                if (untracked.size() > 0 || modified.size() > 0 || removed.size() > 0) {
-                    try {
-                        sendMail("Svn2Git", svnRepoPath + " " + version + " 版本存在未跟踪文件");
-                    } catch (Exception ignored) {
-                    }
-                    logger.info("        untracked: " + untracked);
-                }
                 if (uncommittedChanges.size() > 0) {
                     if ("".equals(commitMsg)) {
                         git.commit().setMessage("SVN version " + version).setCommitter(personIdent).call();
