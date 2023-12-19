@@ -38,14 +38,16 @@ public class SvnGitController {
             if (StringUtils.isEmptyOrNull(repoName) || "all".equals(repoName.toLowerCase())) {
                 for (String key : svnGitConfigMap.keySet()) {
                     SvnGitConfig svnGitConfig = svnGitConfigMap.get(key);
-                    svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(), Pattern.compile(svnGitConfig.getDirRegx()));
+                    svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(),
+                            svnGitConfig.getDirRegx() != null ? Pattern.compile(svnGitConfig.getDirRegx()) : null, svnGitConfig.getDirSuffix());
                 }
             } else {
                 SvnGitConfig svnGitConfig = svnGitConfigMap.get(repoName);
                 if (svnGitConfig == null) {
                     return "未找到仓库配置信息";
                 }
-                svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(), Pattern.compile(svnGitConfig.getDirRegx()));
+                svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(),
+                        svnGitConfig.getDirRegx() != null ? Pattern.compile(svnGitConfig.getDirRegx()) : null, svnGitConfig.getDirSuffix());
             }
         } catch (SVNException | IOException e) {
             e.printStackTrace();

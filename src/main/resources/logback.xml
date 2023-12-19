@@ -6,7 +6,7 @@
         </encoder>
     </appender>
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>applog/datacleaner.log</file>
+        <file>applog/svn2git.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
             <fileNamePattern>logs/svn2git.%i.log</fileNamePattern>
             <minIndex>1</minIndex>
@@ -27,7 +27,7 @@
             <onMatch>ACCEPT</onMatch>
             <onMismatch>DENY</onMismatch>
         </filter>
-        <file>applog/datacleaner_error.log</file>
+        <file>applog/svn2git_error.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
             <fileNamePattern>applog/datacleaner_error.%i.log</fileNamePattern>
             <minIndex>1</minIndex>

@@ -18,13 +18,15 @@ svn:
   password: your_svn_password
 
 git:
+  username: your_svn_username
+  password: your_svn_password
   user_map:
     user1name: user1email
     user2name: user2email
     user3name: user3email
 
 # 要同步的项目设置
-svn2git:
+svn_git_mapping:
   platform:
     svn_url: your_svn_url
     svn_project_path: your_sync_svn_project_path

@@ -10,5 +10,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "git")
 @Data
 public class UserEmailMapConfig {
+    private String username;
+    private String password;
     private Map<String, String> userMap;
 }

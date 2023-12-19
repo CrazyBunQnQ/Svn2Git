@@ -13,6 +13,8 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,10 +57,11 @@ public class SvnGitServiceImpl implements ISvnGitService {
     private static final String MODEL_MAP_FILE = "svn_git_map.properties";
     private static final long FORCE_FIX_VERSION_INTERVAL = 1000;
     private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md", "config.bat", "config.sh"});
-    private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider"});
+    private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider", "dev"});
+    private static final Pattern BRANCH_REGEX = Pattern.compile("\\d+\\.\\d+.*");
     private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata", "hooks"});
     private static final List<String> BRANCH_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", "Common", "transceiver"});
-    private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata"});
+    private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", ".git"});
     private static Set<String> newModel = new HashSet<>(20);
     public static int STATUS = 0;
 
@@ -66,6 +69,10 @@ public class SvnGitServiceImpl implements ISvnGitService {
     private String username;
     @Value("${svn.password}")
     private String password;
+    @Value("${git.username}")
+    private String gitUserName;
+    @Value("${git.password}")
+    private String gitPassword;
 
     @Value("${mail.sender}")
     private String sender;
@@ -94,7 +101,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
 
     @Override
     @Async("syncSvnToGitExecutor")
-    public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) {
+    public void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx, String suffix) {
         if (STATUS != 0) {
             logger.info("同步正在进行中...");
             return;
@@ -127,7 +134,11 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 logger.info("开始更新 svn 项目 " + svnRepoPath + " 到 " + revision + " 版本，作者 " + author + "，提交信息 " + commitMsg + "，提交时间 " + SIMPLE_DATE_FORMAT.format(commitDate));
                 startTime = System.currentTimeMillis();
                 try {
-                    updateSvnToRevision(svnRepoPath, revision);
+                    int updateResult = updateSvnToRevision(svnRepoPath, revision);
+                    if (updateResult != 0) {
+                        logger.error("    svn 更新失败, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
+                        System.exit(1);
+                    }
                     logger.info("    svn 更新完成, 耗时 " + (System.currentTimeMillis() - startTime) / 1000 + " 秒");
                 } catch (Exception e) {
                     try {
@@ -146,7 +157,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 logger.info("开始提交 " + changesByBranch.size() + " 个分支到 Git");
                 try {
                     long gitCommitStartTime = System.currentTimeMillis();
-                    copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null);
+                    copySvnChangesToGit(svnRepoPath, gitRepoPath, changesByBranch, revision, author, commitMsg, commitDate, modelMap, modelMap != null, dirRegx, suffix);
                     logger.info("    提交 " + revision + " 版本资源到 Git 耗时：" + (System.currentTimeMillis() - gitCommitStartTime) / 1000 + " 秒");
                     logger.info("同步 " + svnRepoPath + " 项目 " + revision + " 版本到 Git 总耗时：" + (System.currentTimeMillis() - startTime) / 1000 + " 秒\n");
                 } catch (Exception e) {
@@ -543,6 +554,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
      * @return
      */
     private String getBranchFromPath(String path, Pattern pattern) {
+        if (pattern == null) {
+            return "master";
+        }
         Matcher matcher = pattern.matcher(path);
         return matcher.find() ? matcher.group(1) : "master";
     }
@@ -565,7 +579,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
      * @throws IOException
      * @throws GitAPIException
      */
-    private void copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel) throws IOException, GitAPIException {
+    private Long copySvnChangesToGit(String svnRepoPath, String gitRepoPath, Map<String, List<SVNLogEntryPath>> changesByBranch, long version, String author, String commitMsg, Date commitDate, Map<String, Map<String, Object>> modelMap, boolean hasModel, Pattern dirRegx, String suffix) throws IOException, GitAPIException {
         Map<String, Long> lastFixVersion = readFixVersion(gitRepoPath + File.separator + FORCE_FIX_VERSION_FILE);
         File gitWorkingDir = new File(gitRepoPath);
         Git git = Git.open(gitWorkingDir);
@@ -580,19 +594,24 @@ public class SvnGitServiceImpl implements ISvnGitService {
             } catch (Exception ignored) {
             }
         }
+        // 添加认证信息
+        CredentialsProvider credentialsProvider = new UsernamePasswordCredentialsProvider(gitUserName, gitPassword);
         PersonIdent personIdent = new PersonIdent(new PersonIdent(author, emailMap.get(author)), commitDate == null ? new Date() : commitDate);
         // 将 changesByBranch 的 key 尾号进行排序
         List<String> sortedBranches = changesByBranch.keySet().stream().sorted().collect(Collectors.toList());
 
+        Long highestVersion = 0L;
         for (String branch : sortedBranches) {
             String gitRepoName = gitRepoPath.substring(gitRepoPath.lastIndexOf(File.separator) + 1);
             if (branch.startsWith(".")) {
                 continue;
             }
-            if ("master".equals(branch) || (!branch.toLowerCase().startsWith(gitRepoName.toLowerCase() + "_") && !BRANCH_WITELIST.contains(branch))) {
-                if (modelMap == null) {
-                    logger.info("    跳过分支：" + branch);
-                    continue;
+            if (dirRegx != null) {
+                if ("master".equals(branch) || (!branch.toLowerCase().startsWith(gitRepoName.toLowerCase() + "_") && !BRANCH_REGEX.matcher(branch).matches() && !BRANCH_WITELIST.contains(branch))) {
+                    if (modelMap == null) {
+                        logger.info("    跳过分支：" + branch);
+                        continue;
+                    }
                 }
             }
             // 独立模块的分支单独处理
@@ -608,19 +627,25 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 tmpModelMap.put(tmpModel, tmpMap);
                 Map<String, List<SVNLogEntryPath>> subChangesByBranch = new HashMap<>(1);
                 subChangesByBranch.put(tmpBranch, changesByBranch.get(branch));
-                copySvnChangesToGit(svnRepoPath + File.separator + tmpModel,
+                Long subVersion = copySvnChangesToGit(svnRepoPath + File.separator + tmpModel,
                         gitRepoPath.replace(gitRepoName, tmpModel),
-                        subChangesByBranch, version, author, commitMsg, commitDate, tmpModelMap, false);
+                        subChangesByBranch, version, author, commitMsg, commitDate, tmpModelMap, false, null, null);
+                if (subVersion != null && highestVersion > 0L) {
+                    highestVersion = subVersion;
+                }
                 continue;
             }
             // 是否涉及合并
             boolean hasMerge = false;
             Set<String> mergeSet = new HashSet<>();
             List<SVNLogEntryPath> svnLogEntryPaths = changesByBranch.get(branch);
-            for (SVNLogEntryPath change : svnLogEntryPaths) {
-                String path = change.getPath();
-                String copyPath = change.getCopyPath();
-                checkMergeAction(svnRepoPath, version, branch, mergeSet, path, copyPath);
+            try {
+                for (SVNLogEntryPath change : svnLogEntryPaths) {
+                    String path = change.getPath();
+                    String copyPath = change.getCopyPath();
+                    checkMergeAction(svnRepoPath, version, branch, mergeSet, path, copyPath);
+                }
+            } catch (Exception ignored) {
             }
             if (!mergeSet.isEmpty()) {
                 String msg = String.join("\n", mergeSet);
@@ -651,10 +676,18 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     String realModelName;
                     // 分支名之后的路径
                     String branchPath;
-                    if ("dev".equals(branch)) {
+                    if (dirRegx == null || "dev".equals(branch)) {
+                        if (path.endsWith(gitRepoName) || !path.contains(gitRepoName)) {
+                            continue;
+                        }
+                        branchPath = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
+                    } else if ("dev".equals(branch)) {
                         branchPath = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
                     } else {
                         branchPath = path.substring(path.indexOf(branch));
+                    }
+                    if (branchPath.contains(".git")) {
+                        continue;
                     }
                     String contentPath = null;
                     Path targetPath = null;
@@ -665,7 +698,10 @@ public class SvnGitServiceImpl implements ISvnGitService {
                             logger.info("        暂不跳过1");
                             // continue;
                         }
-                        contentPath = branchPath.substring(branchPath.indexOf(branch) + branch.length());
+                        contentPath = dirRegx == null ? branchPath : branchPath.substring(branchPath.indexOf(branch) + branch.length());
+                        if (contentPath.contains(gitRepoName)) {
+                            contentPath = contentPath.substring(contentPath.indexOf(gitRepoName) + gitRepoName.length());
+                        }
                         targetPath = Paths.get(gitRepoPath, contentPath);
                     } else {
                         model = path.substring(path.indexOf(gitRepoName) + gitRepoName.length() + 1);
@@ -734,6 +770,8 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     logger.info("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
                 }
                 starttime = System.currentTimeMillis();
+                // 从 master 分支检出 .gitignore 文件
+                modelMap = checkoutFromMasterAndReloadModelMap(gitRepoPath, modelMap, hasModel, git, branch);
                 int addResult = gitAddAll(gitWorkingDir);
                 if (addResult != 0) {
                     logger.error("        " + branch + " 分支 git add . 失败");
@@ -785,7 +823,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     }
                 }
                 // 拷贝 svnRepoPath 下所有非 .svn 目录和文件到 gitRepoPath 目录下
-                File svnRepo = modelMap == null ? new File(svnRepoPath + File.separator + branch) : new File(svnRepoPath);
+                File svnRepo = modelMap == null ? new File(svnRepoPath + File.separator + branch + (suffix == null ? "" : File.separator + suffix)) : new File(svnRepoPath);
                 files = svnRepo.listFiles();
                 if (files != null) {
                     for (File file : files) {
@@ -858,6 +896,8 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 if (costtime > 2L) {
                     logger.info("        " + branch + " 分支修改和删除文件耗时：" + costtime + " 秒");
                 }
+                // 从 master 分支检出 .gitignore 文件
+                modelMap = checkoutFromMasterAndReloadModelMap(gitRepoPath, modelMap, hasModel, git, branch);
                 starttime = System.currentTimeMillis();
                 int addResult = gitAddAll(gitWorkingDir);
                 if (addResult != 0) {
@@ -878,11 +918,11 @@ public class SvnGitServiceImpl implements ISvnGitService {
             }
         }
         try {
-            git.push().setPushAll().call();
+            git.push().setCredentialsProvider(credentialsProvider).setPushAll().call();
         } catch (Exception ignore) {
             try {
                 logger.info("  push 失败，尝试强制 push");
-                git.push().setPushAll().setForce(true).call();
+                git.push().setCredentialsProvider(credentialsProvider).setPushAll().setForce(true).call();
             } catch (Exception e) {
                 e.printStackTrace();
                 try {
@@ -893,9 +933,13 @@ public class SvnGitServiceImpl implements ISvnGitService {
             }
         }
         git.close();
+        if (highestVersion > version) {
+            version = highestVersion;
+        }
         if (version > 0L) {
             Files.write(Paths.get(gitRepoPath, ".svn_version"), String.valueOf(version).getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
+        return version;
     }
 
     private static void checkMergeAction(String svnRepoPath, long version, String branch, Set<String> mergeSet, String path, String copyPath) {

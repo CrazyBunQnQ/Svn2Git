@@ -39,7 +39,8 @@ public class SyncSvn2Git {
             Map<String, SvnGitConfig> svnGitConfigMap = svnGitProjectMaping.getSvnGitMapping();
             for (String key : svnGitConfigMap.keySet()) {
                 SvnGitConfig svnGitConfig = svnGitConfigMap.get(key);
-                svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(), Pattern.compile(svnGitConfig.getDirRegx()));
+                svnGitService.syncSvnCommit2Git(svnGitConfig.getSvnUrl(), svnGitConfig.getSvnProjectPath(), svnGitConfig.getGitProjectPath(),
+                        svnGitConfig.getDirRegx() == null ? null : Pattern.compile(svnGitConfig.getDirRegx()), svnGitConfig.getDirSuffix());
             }
         } catch (SVNException | IOException e) {
             logger.info("同步仓库失败: " + e.getMessage());

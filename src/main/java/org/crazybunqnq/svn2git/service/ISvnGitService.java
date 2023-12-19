@@ -7,5 +7,5 @@ import java.util.regex.Pattern;
 
 public interface ISvnGitService {
     void test();
-    void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx) throws SVNException, IOException;
+    void syncSvnCommit2Git(String svnUrl, String svnRepoPath, String gitRepoPath, Pattern dirRegx, String suffix) throws SVNException, IOException;
 }
