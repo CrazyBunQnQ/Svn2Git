@@ -5,15 +5,13 @@ import org.apache.commons.exec.DefaultExecutor;
 import org.crazybunqnq.svn2git.config.UserEmailMapConfig;
 import org.crazybunqnq.svn2git.entity.MergedSVNLogEntry;
 import org.crazybunqnq.svn2git.service.ISvnGitService;
-import org.eclipse.jgit.api.CreateBranchCommand;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.RmCommand;
-import org.eclipse.jgit.api.Status;
+import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.FetchResult;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +57,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
     private static final List<String> DELETE_WITELIST = Arrays.asList(new String[]{".git", ".idea", ".gitignore", ".svn_version", "svn_commit.log", ".svn_path", ".fix_version", "svn_git_map.properties", "hooks", "README.md", "config.bat", "config.sh"});
     private static final List<String> BRANCH_WITELIST = Arrays.asList(new String[]{"platform-divider", "dev"});
     private static final Pattern BRANCH_REGEX = Pattern.compile("\\d+\\.\\d+.*");
-    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata", "hooks"});
+    private static final List<String> MODEL_BLACKLIST = Arrays.asList(new String[]{".git", ".idea", "master", "DemoCenter", "src", "target", ".settings", "datacollector", "eacenter", "DdataCleaner", ".metadata", "hooks", "SoarCenter", "SoarApp", "VirusCenter", "LogAudit", "Common", "Package"});
     private static final List<String> BRANCH_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", "Common", "transceiver"});
     private static final List<String> COPY_BLACKLIST = Arrays.asList(new String[]{".svn", ".metadata", ".git"});
     private static Set<String> newModel = new HashSet<>(20);
@@ -652,13 +650,13 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 logger.info("    此版本涉及分支合并操作: \n" + msg);
                 hasMerge = true;
             }
-            boolean isNewBranch = checkoutOrCreateBranch(git, branch);
+            boolean isNewBranch = checkoutOrCreateBranch(git, credentialsProvider, branch);
 
             long lastVersion = lastFixVersion != null && lastFixVersion.containsKey(branch) ? lastFixVersion.get(branch) : 0;
-            if (!isNewBranch && version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
-                logger.info("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
-                isNewBranch = true;
-            }
+            // if (!isNewBranch && version - lastVersion > FORCE_FIX_VERSION_INTERVAL) {
+                // logger.info("    分支 " + branch + " 距离上次全量提交的版本间隔太久，强制全量提交");
+                // isNewBranch = true;
+            // }
             if (!isNewBranch && modelMap != null && !hasModel) {
                 logger.info("    模块 " + gitRepoName + " 强制全量提交");
                 isNewBranch = true;
@@ -699,8 +697,10 @@ public class SvnGitServiceImpl implements ISvnGitService {
                             // continue;
                         }
                         contentPath = dirRegx == null ? branchPath : branchPath.substring(branchPath.indexOf(branch) + branch.length());
-                        if (contentPath.contains(gitRepoName)) {
+                        if (contentPath.startsWith(gitRepoName) || contentPath.startsWith("/" + gitRepoName)) {
                             contentPath = contentPath.substring(contentPath.indexOf(gitRepoName) + gitRepoName.length());
+                        } else if (contentPath.startsWith(gitRepoName.toLowerCase()) || contentPath.startsWith("/" + gitRepoName.toLowerCase())) {
+                            contentPath = contentPath.substring(contentPath.indexOf(gitRepoName.toLowerCase()) + gitRepoName.length());
                         }
                         targetPath = Paths.get(gitRepoPath, contentPath);
                     } else {
@@ -930,6 +930,7 @@ public class SvnGitServiceImpl implements ISvnGitService {
                 } catch (Exception ignored) {
                 }
                 logger.info("        git push 异常: " + e.getMessage());
+                System.exit(1);
             }
         }
         git.close();
@@ -979,14 +980,18 @@ public class SvnGitServiceImpl implements ISvnGitService {
      * @param branch 目标分支
      * @return 是否创建新分支
      */
-    private boolean checkoutOrCreateBranch(Git git, String branch) throws GitAPIException, IOException {
+    private boolean checkoutOrCreateBranch(Git git, CredentialsProvider credentialsProvider, String branch) throws GitAPIException, IOException {
         String currentBranch = git.getRepository().getBranch();
         logger.info("    当前分支：" + currentBranch + ", 目标分支：" + branch);
         if (currentBranch.equals(branch)) {
+            FetchResult fetchResult = git.fetch().setCredentialsProvider(credentialsProvider).call();
+            PullResult pullResult = git.pull().setCredentialsProvider(credentialsProvider).call();
             return false;
         }
         try {
             git.checkout().setName(branch).call();
+            FetchResult fetchResult = git.fetch().setCredentialsProvider(credentialsProvider).call();
+            PullResult pullResult = git.pull().setCredentialsProvider(credentialsProvider).call();
             return false;
         } catch (RefNotFoundException e) {
             try {
@@ -1042,6 +1047,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
             while (scanner.hasNextLine()) {
                 Map<String, Object> map = new HashMap<>(2);
                 String line = scanner.nextLine();
+                if (line.isEmpty()) {
+                    continue;
+                }
                 String[] parts = line.split("=");
                 String branch = parts[0];
                 String pathReg = parts[1];
