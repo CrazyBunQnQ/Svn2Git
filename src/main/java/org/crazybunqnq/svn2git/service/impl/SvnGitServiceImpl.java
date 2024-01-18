@@ -144,7 +144,8 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     } catch (Exception ignored) {
                     }
                     e.printStackTrace();
-                    break;
+                    // 退出应用
+                    System.exit(1);
                 }
                 Map<String, List<SVNLogEntryPath>> changesByBranch;
                 if (modelMap == null) {
@@ -700,7 +701,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                         if (contentPath.startsWith(gitRepoName) || contentPath.startsWith("/" + gitRepoName)) {
                             contentPath = contentPath.substring(contentPath.indexOf(gitRepoName) + gitRepoName.length());
                         } else if (contentPath.startsWith(gitRepoName.toLowerCase()) || contentPath.startsWith("/" + gitRepoName.toLowerCase())) {
-                            contentPath = contentPath.substring(contentPath.indexOf(gitRepoName.toLowerCase()) + gitRepoName.length());
+                            if (!"Platform".equals(gitRepoName)) {
+                                contentPath = contentPath.substring(contentPath.indexOf(gitRepoName.toLowerCase()) + gitRepoName.length());
+                            }
                         }
                         targetPath = Paths.get(gitRepoPath, contentPath);
                     } else {
@@ -759,6 +762,9 @@ public class SvnGitServiceImpl implements ISvnGitService {
                     } else if (change.getType() == TYPE_DELETED) {
                         if (targetFile.exists()) {
                             if (targetFile.isDirectory()) {
+                                // TODO 判断删除分支
+                                //      E:\Svn2GitProjects\SvnSyncProjects\SMPlatform
+                                //      E:\Svn2GitProjects\GitSyncProjects\Platform
                                 logger.info("        删除目录1: " + targetPath);
                             }
                             rmDirs(targetFile);
