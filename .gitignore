@@ -35,3 +35,5 @@ build/
 /.svn_update
 /.mvn/
 /logs/
+.claude
+.gitnexus
