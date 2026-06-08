@@ -33,6 +33,7 @@ build/
 .vscode/
 *.log
 /.svn_update
+/config/application.yml
 /.mvn/
 /logs/
 .claude

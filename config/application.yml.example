@@ -1,0 +1,98 @@
+# SVN 认证信息，用于读取远程 SVN 日志和更新本地 SVN 工作副本。
+svn:
+  # SVN 用户名；如果 SVN 访问不需要认证，可以留空或删除。
+  username: your_svn_username
+  # SVN 密码。正式配置写在 config/application.yml，该文件已被 Git 忽略。
+  password: your_svn_password
+
+# Git 相关配置。
+git:
+  # Git 用户名占位字段，当前 Python 同步逻辑只解析保存，暂未实际使用。
+  username: your_git_username
+  # Git 密码占位字段，当前 Python 同步逻辑只解析保存，暂未实际使用。
+  password: your_git_password
+  # SVN 作者到 Git 邮箱的映射。key 是 SVN 用户名，value 是提交时使用的 Git 邮箱。
+  user_map:
+    user1name: user1email@example.com
+    user2name: user2email@example.com
+    user3name: user3email@example.com
+
+# 要同步的项目设置。顶层 key 是仓库名，CLI 的 --repo 参数使用这个名字。
+# 也兼容旧 key 名 svn2git，但推荐使用 svn_git_mapping。
+svn_git_mapping:
+  platform:
+    # SVN 仓库或分支根 URL，用于 svn log 读取提交记录；子模块未配置 svn_url 时会继承它。
+    svn_url: your_svn_url
+    # 本地 SVN 工作副本路径；同步时会在这里执行 svn update。
+    svn_project_path: your_sync_svn_project_path
+    # 本地 Git 仓库路径；同步时会在这里 checkout 分支、复制文件、提交并推送。
+    git_project_path: your_sync_git_project_path
+    # 从 SVN changed-path 中提取分支名的正则，必须包含一个捕获组；不配置时默认同步到 master。
+    # 历史配置名是 dir_regx，程序也兼容更正后的 dir_regex。
+    dir_regx: a_regular_expression_to_match_your_project_branch
+
+  example:
+    # 示例：普通 SVN 分支目录同步到一个 Git 仓库。
+    svn_url: http://127.0.0.1:8443/repo/example
+    svn_project_path: F:\SvnRepo\SMPlatform
+    git_project_path: F:\GitRepo\Platform
+    # 这里会把 /branches/dev/... 识别为 Git 分支 dev。
+    dir_regx: .*/branches/([^/]+).*
+
+  suite:
+    # 示例：一个父 Git 仓库下管理多个 Git 子模块。
+    svn_url: https://svn.example.com/repos/main
+    svn_project_path: F:\SvnRepo\Suite
+    git_project_path: F:\GitRepo\Suite
+    # 子模块未配置 dir_regx 时会继承父仓库的分支识别规则。
+    dir_regx: .*/branches/([^/]+).*
+    submodules:
+      billing:
+        # 子模块自己的本地 SVN 工作副本路径。
+        svn_project_path: F:\SvnRepo\Billing
+        # 子模块在父 Git 仓库中的相对路径。
+        git_submodule_path: modules/billing
+        # 子模块 Git 远端地址；首次同步时会用于 git submodule add。
+        git_remote_url: ssh://git.example.com/suite/billing.git
+        # 分支级来源覆盖。key 是原始 SVN 分支名或 dir_regx 捕获出的分支名。
+        branch_overrides:
+          dev:
+            # dev 分支使用不同的 SVN URL；不配置时继承模块或父仓库的 svn_url。
+            svn_url: https://svn.example.com/repos/billing-dev
+            # 分支覆盖必须指定自己的本地 SVN 工作副本路径。
+            svn_project_path: F:\SvnRepo\BillingDev
+          # 数字样式分支名必须加引号，否则 YAML 会把 2.13 当作小数。
+          "2.13":
+            # Common 2.13 的真实 SVN 来源路径。
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
+            # Common 2.13 对应的本地 SVN 工作副本路径。
+            svn_project_path: F:\SvnTest\SingularityCommon-2.13
+            # 从复制到 Git 的相对路径中去掉 common 这一层，避免生成 common/common-facade。
+            dir_suffix: common
+          platform_2.13:
+            # Framework 2.13 的 SVN 源分支名是 platform_2.13。
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
+            # Framework 2.13 对应的本地 SVN 工作副本路径。
+            svn_project_path: F:\SvnTest\SingularityFramework-2.13
+            # 覆盖父级分支识别规则，用于匹配 platform_2.13 下任意模块路径。
+            dir_regx: .*/branches/([^/]+)/.*
+            # 将 SVN 分支 platform_2.13 同步到 Git 分支 2.13。
+            branch_name: "2.13"
+      reporting:
+        # 第二个子模块示例，展示子模块可以单独覆盖分支识别规则。
+        svn_project_path: F:\SvnRepo\Reporting
+        git_submodule_path: modules/reporting
+        git_remote_url: ssh://git.example.com/suite/reporting.git
+        # 这里会把 /release/2024/... 识别为 Git 分支 2024。
+        dir_regx: .*/release/([^/]+).*
+
+# 邮件提醒配置占位。当前 Python 同步逻辑只解析保存 mail 字段，暂未实际发送邮件。
+mail:
+  # 发件人邮箱。
+  sender: your_email_address
+  # 收件人邮箱。
+  recipient: your_recipient_email_address
+  # 邮箱授权码或密码。正式配置写在被忽略的 config/application.yml 中。
+  password: your_password
+  # SMTP 服务器地址。
+  host: smtp.qq.com

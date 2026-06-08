@@ -36,7 +36,7 @@ python -m svn2git sync --config config/application.yml --repo platform --log-xml
 
 ### 配置
 
-[application.yml](config%2Fapplication.yml)
+[application.yml.example](config%2Fapplication.yml.example) 是示例配置；实际使用时复制为 `config/application.yml` 并按本地环境修改。`config/application.yml` 已被 Git 忽略，不应提交账号、路径等本地正式配置。
 
 #### SVN 账号
 
