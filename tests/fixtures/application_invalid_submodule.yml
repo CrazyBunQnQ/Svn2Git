@@ -1,0 +1,15 @@
+svn:
+  username: svn_user
+  password: svn_password
+git:
+  username: git_user
+  password: git_password
+svn_git_mapping:
+  suite:
+    svn_url: https://svn.example.com/repos/main
+    svn_project_path: Q:\svn2git-fixture\svn\Suite
+    git_project_path: Q:\svn2git-fixture\git\Suite
+    submodules:
+      billing:
+        git_submodule_path: modules/billing
+        git_remote_url: ssh://git.example.com/suite/billing.git

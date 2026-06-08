@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<log>
+  <logentry revision="41">
+    <author>alice</author>
+    <date>2024-01-02T03:04:05.000000Z</date>
+    <msg>Add billing feature</msg>
+    <paths>
+      <path action="A">/repo/project/branches/dev/billing/src/app.py</path>
+      <path action="M">/repo/project/branches/dev/billing/README.md</path>
+      <path action="D">/repo/project/branches/dev/billing/old.py</path>
+      <path action="A" copyfrom-path="/repo/project/branches/main/billing/src/base.py" copyfrom-rev="40">/repo/project/branches/dev/billing/src/base.py</path>
+    </paths>
+  </logentry>
+  <logentry revision="42">
+    <author>bob</author>
+    <date>2024-01-03T03:04:05.000000Z</date>
+    <msg>Release reporting</msg>
+    <paths>
+      <path action="M">/repo/project/release/2.0/reporting/report.txt</path>
+    </paths>
+  </logentry>
+</log>
