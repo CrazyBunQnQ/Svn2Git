@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<log>
+  <logentry revision="213">
+    <author>alice</author>
+    <date>2024-02-13T03:04:05.000000Z</date>
+    <msg>Patch Common 2.13</msg>
+    <paths>
+      <path action="M">/repo/codes/SafeMg/Singularity/Common/2.13/common/src/Fix.java</path>
+    </paths>
+  </logentry>
+  <logentry revision="214">
+    <author>alice</author>
+    <date>2024-02-14T03:04:05.000000Z</date>
+    <msg>Patch framework platform_2.13</msg>
+    <paths>
+      <path action="M">/repo/codes/SafeMg/SMPlatform/branches/platform_2.13/platform-resource/src/Fix.java</path>
+    </paths>
+  </logentry>
+</log>

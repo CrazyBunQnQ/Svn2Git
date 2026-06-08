@@ -36,6 +36,15 @@ svn_git_mapping:
           dev:
             svn_url: https://svn.example.com/repos/billing-dev
             svn_project_path: F:\SvnRepo\BillingDev
+          "2.13":
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
+            svn_project_path: F:\SvnTest\SingularityCommon-2.13
+            dir_suffix: common
+          platform_2.13:
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
+            svn_project_path: F:\SvnTest\SingularityFramework-2.13
+            dir_regx: .*/branches/([^/]+)/.*
+            branch_name: "2.13"
       reporting:
         svn_project_path: F:\SvnRepo\Reporting
         git_submodule_path: modules/reporting

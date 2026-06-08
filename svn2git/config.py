@@ -18,6 +18,7 @@ class BranchOverride:
     svn_url: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
+    branch_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,7 @@ def _parse_branch_overrides(prefix: str, raw: dict[str, Any]) -> dict[str, Branc
             svn_project_path=_required(branch_raw, f"{label}.svn_project_path", "svn_project_path"),
             dir_regex=branch_raw.get("dir_regx") or branch_raw.get("dir_regex"),
             dir_suffix=branch_raw.get("dir_suffix"),
+            branch_name=branch_raw.get("branch_name"),
         )
     return overrides
 

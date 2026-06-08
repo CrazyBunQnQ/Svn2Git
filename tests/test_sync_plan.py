@@ -58,6 +58,28 @@ def test_submodule_plan_skips_unrelated_revisions():
     assert "svn source: https://svn.example.com/repos/billing-dev Q:\\svn2git-fixture\\svn\\BillingDev" in plan.render()
 
 
+def test_repository_branch_overrides_resolve_common_and_framework_213_sources(tmp_path):
+    config = load_config(FIXTURES / "application_singularity.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log_singularity.xml").read_text(encoding="utf-8"))
+    target = config.repositories["singularity"].expand_targets()[0]
+    object.__setattr__(target, "git_path", str(tmp_path))
+
+    plan = build_sync_plan(config, "singularity", entries, dry_run=True, target_overrides={"singularity": target})
+    common_revision, framework_revision = plan.target_plans[0].revisions
+
+    assert common_revision.branches == ("2.13",)
+    assert common_revision.git_branch == "2.13"
+    assert common_revision.svn_url == "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common"
+    assert common_revision.svn_project_path == "F:\\SvnTest\\SingularityCommon-2.13"
+    assert common_revision.dir_suffix == "common"
+    assert framework_revision.branches == ("2.13",)
+    assert framework_revision.git_branch == "2.13"
+    assert framework_revision.svn_url == "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13"
+    assert framework_revision.svn_project_path == "F:\\SvnTest\\SingularityFramework-2.13"
+    assert framework_revision.dir_regex == r".*/branches/([^/]+)/.*"
+    assert framework_revision.dir_suffix is None
+
+
 def _tmp_targets(config):
     overrides = {}
     for index, target in enumerate(config.repositories["suite"].expand_targets()):

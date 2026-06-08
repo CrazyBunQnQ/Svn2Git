@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from pathlib import Path
 
 from svn2git.config import AppConfig, SyncTarget
-from svn2git.svn_log import ChangedPath, LogEntry, group_changes_by_branch
+from svn2git.svn_log import ChangedPath, LogEntry
 
 
 @dataclass(frozen=True)
@@ -13,8 +14,11 @@ class PlannedRevision:
     author: str
     message: str
     branches: tuple[str, ...]
+    git_branch: str
     svn_url: str
     svn_project_path: str
+    dir_regex: str | None
+    dir_suffix: str | None
     entry: LogEntry
 
 
@@ -73,16 +77,20 @@ def _plan_target(target: SyncTarget, entries: list[LogEntry]) -> TargetPlan:
         if not relevant_paths:
             continue
         filtered_entry = LogEntry(entry.revision, entry.author, entry.date, entry.message, relevant_paths)
-        grouped = group_changes_by_branch(filtered_entry, target.dir_regex)
-        source = _source_for_branches(target, tuple(sorted(grouped)))
+        grouped = _group_changes_by_branch(target, filtered_entry)
+        source_branches = tuple(sorted(grouped))
+        source = _source_for_branches(target, source_branches)
         revisions.append(
             PlannedRevision(
                 revision=entry.revision,
                 author=entry.author,
                 message=entry.message,
-                branches=tuple(sorted(grouped)),
+                branches=_branch_names_for_sources(target, source_branches),
+                git_branch=_git_branch_for_sources(target, source_branches),
                 svn_url=source[0],
                 svn_project_path=source[1],
+                dir_regex=source[2],
+                dir_suffix=source[3],
                 entry=filtered_entry,
             )
         )
@@ -116,9 +124,53 @@ def _normalize(path: str) -> str:
     return normalized if normalized.startswith("/") else f"/{normalized}"
 
 
-def _source_for_branches(target: SyncTarget, branches: tuple[str, ...]) -> tuple[str, str]:
+def _group_changes_by_branch(target: SyncTarget, entry: LogEntry) -> dict[str, list[ChangedPath]]:
+    grouped: dict[str, list[ChangedPath]] = {}
+    for change in entry.changed_paths:
+        branch = _branch_for_change(change, target.dir_regex)
+        if branch == "master":
+            branch = _override_branch_for_change(target, change) or branch
+        grouped.setdefault(branch, []).append(change)
+    return grouped
+
+
+def _branch_for_change(change: ChangedPath, branch_regex: str | None) -> str:
+    if not branch_regex:
+        return "master"
+    match = re.compile(branch_regex).match(change.path)
+    return match.group(1) if match else "master"
+
+
+def _override_branch_for_change(target: SyncTarget, change: ChangedPath) -> str | None:
+    for branch, override in target.branch_overrides.items():
+        if not override.dir_regex:
+            continue
+        if _branch_for_change(change, override.dir_regex) == branch:
+            return branch
+    return None
+
+
+def _source_for_branches(target: SyncTarget, branches: tuple[str, ...]) -> tuple[str, str, str | None, str | None]:
     for branch in branches:
         override = target.branch_overrides.get(branch)
         if override:
-            return override.svn_url or target.svn_url, override.svn_project_path
-    return target.svn_url, target.svn_project_path
+            return (
+                override.svn_url or target.svn_url,
+                override.svn_project_path,
+                override.dir_regex or target.dir_regex,
+                override.dir_suffix if override.dir_suffix is not None else target.dir_suffix,
+            )
+    return target.svn_url, target.svn_project_path, target.dir_regex, target.dir_suffix
+
+
+def _branch_names_for_sources(target: SyncTarget, branches: tuple[str, ...]) -> tuple[str, ...]:
+    names = []
+    for branch in branches:
+        override = target.branch_overrides.get(branch)
+        names.append(override.branch_name if override and override.branch_name else branch)
+    return tuple(sorted(names))
+
+
+def _git_branch_for_sources(target: SyncTarget, branches: tuple[str, ...]) -> str:
+    names = _branch_names_for_sources(target, branches)
+    return names[0] if names else "master"

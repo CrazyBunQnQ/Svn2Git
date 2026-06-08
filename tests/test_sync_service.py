@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from svn2git.commands import DryRunRunner
+from svn2git.commands import CommandResult, DryRunRunner, RecordedCommand
 from svn2git.config import load_config
 from svn2git.service import SyncService
 from svn2git.svn_log import ChangedPath, LogEntry, parse_svn_log_xml
@@ -51,6 +51,20 @@ class RecordingFileSynchronizer:
         self.applied.append((target.name, [change.path for change in entry.changed_paths]))
 
 
+class BranchAwareDryRunRunner(DryRunRunner):
+    def __init__(self):
+        super().__init__()
+        self.branches = set()
+
+    def run(self, args, cwd=None):
+        if args[:3] == ["git", "rev-parse", "--verify"]:
+            self.commands.append(RecordedCommand(tuple(args), cwd))
+            return CommandResult(0 if args[3] in self.branches else 1)
+        if args[:3] == ["git", "checkout", "-B"]:
+            self.branches.add(args[3])
+        return super().run(args, cwd=cwd)
+
+
 def test_sync_raises_when_mutating_command_fails():
     config = load_config(FIXTURES / "application_legacy.yml")
     entries = [
@@ -89,3 +103,28 @@ def test_mixed_module_revision_syncs_only_target_relevant_paths():
 
     assert ("suite:billing", ["/repo/project/branches/dev/billing/src/app.py"]) in recorder.applied
     assert ("suite:reporting", ["/repo/project/release/2.0/reporting/report.txt"]) in recorder.applied
+
+
+def test_sync_uses_branch_override_regex_for_file_application(tmp_path):
+    config = load_config(FIXTURES / "application_singularity.yml")
+    object.__setattr__(config.repositories["singularity"], "git_project_path", str(tmp_path))
+    entries = parse_svn_log_xml((FIXTURES / "svn_log_singularity.xml").read_text(encoding="utf-8"))
+    recorder = RecordingFileSynchronizer()
+    runner = BranchAwareDryRunRunner()
+
+    SyncService(runner, file_synchronizer=recorder).sync(
+        config,
+        "singularity",
+        entries,
+        dry_run=False,
+    )
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git checkout -B 2.13" in command_text
+    assert "git checkout 2.13" in command_text
+    assert "svn update -r 213 F:\\SvnTest\\SingularityCommon-2.13" in command_text
+    assert "svn update -r 214 F:\\SvnTest\\SingularityFramework-2.13" in command_text
+    assert recorder.applied == [
+        ("singularity", ["/repo/codes/SafeMg/Singularity/Common/2.13/common/src/Fix.java"]),
+        ("singularity", ["/repo/codes/SafeMg/SMPlatform/branches/platform_2.13/platform-resource/src/Fix.java"]),
+    ]

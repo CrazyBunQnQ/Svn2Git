@@ -96,6 +96,15 @@ svn_git_mapping:
           dev:
             svn_url: https://svn.example.com/repos/billing-dev
             svn_project_path: F:\SvnRepo\BillingDev
+          "2.13":
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
+            svn_project_path: F:\SvnTest\SingularityCommon-2.13
+            dir_suffix: common
+          platform_2.13:
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
+            svn_project_path: F:\SvnTest\SingularityFramework-2.13
+            dir_regx: .*/branches/([^/]+)/.*
+            branch_name: "2.13"
       reporting:
         svn_project_path: F:\SvnRepo\Reporting
         git_submodule_path: modules/reporting
@@ -105,7 +114,7 @@ svn_git_mapping:
 
 同步时会先确保父 Git 仓库中存在对应子模块，再分别同步每个子模块工作区，最后在父仓库提交 `.gitmodules` 和子模块指针变更。
 
-如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`，其他分支仍使用 `billing` 模块自己的 `svn_project_path`，没有单独配置 `svn_url` 时继续继承父仓库的 `svn_url`。
+如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。Common 的 `2.13` 分支会使用 `.../Singularity/Common/2.13/common`，分支名仍是 `2.13`，并通过 `dir_suffix: common` 去掉工作副本根目录前的 `common` 路径段；framework 的来源路径分支是 `platform_2.13`，会使用 `.../SMPlatform/branches/platform_2.13`，通过自己的 `dir_regx` 识别该分支下的任意模块路径，并通过 `branch_name: "2.13"` 同步到 Git 的 `2.13` 分支。其他分支仍使用 `billing` 模块自己的 `svn_project_path` 和 `dir_regx`，没有单独配置 `svn_url` 时继续继承父仓库的 `svn_url`。
 
 #### 邮件提醒
 

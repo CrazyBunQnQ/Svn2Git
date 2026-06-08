@@ -43,7 +43,14 @@ class SyncService:
 
     def _sync_target(self, target: SyncTarget, revisions, dry_run: bool) -> None:
         for revision in revisions:
-            source_target = replace(target, svn_url=revision.svn_url, svn_project_path=revision.svn_project_path)
+            source_target = replace(
+                target,
+                svn_url=revision.svn_url,
+                svn_project_path=revision.svn_project_path,
+                dir_regex=revision.dir_regex,
+                dir_suffix=revision.dir_suffix,
+            )
+            self._checkout_branch(target, revision.git_branch)
             self.runner.require(["svn", "update", "-r", str(revision.revision), source_target.svn_project_path])
             if not dry_run:
                 self.file_synchronizer.apply_entry(source_target, revision.entry)
@@ -53,3 +60,8 @@ class SyncService:
                 message = f"{message}: {revision.message}"
             self.runner.require(["git", "commit", "-m", message], cwd=target.git_path)
             self.runner.require(["git", "push", "--all"], cwd=target.git_path)
+
+    def _checkout_branch(self, target: SyncTarget, branch: str) -> None:
+        result = self.runner.run(["git", "rev-parse", "--verify", branch], cwd=target.git_path)
+        command = ["git", "checkout", branch] if result.exit_code == 0 else ["git", "checkout", "-B", branch]
+        self.runner.require(command, cwd=target.git_path)

@@ -13,7 +13,7 @@ class FileSynchronizer:
         git_root = Path(target.git_path)
         git_root.mkdir(parents=True, exist_ok=True)
         for change in entry.changed_paths:
-            relative_path = self._relative_path(change, target.dir_regex)
+            relative_path = self._relative_path(change, target.dir_regex, target.dir_suffix)
             if relative_path is None:
                 continue
             source = Path(target.svn_project_path) / relative_path
@@ -24,7 +24,7 @@ class FileSynchronizer:
                 self._delete(destination)
         (git_root / ".svn_version").write_text(str(entry.revision), encoding="utf-8")
 
-    def _relative_path(self, change: ChangedPath, branch_regex: str | None) -> Path | None:
+    def _relative_path(self, change: ChangedPath, branch_regex: str | None, dir_suffix: str | None = None) -> Path | None:
         path = change.path.strip("/")
         if branch_regex:
             match = re.match(branch_regex, change.path)
@@ -33,6 +33,12 @@ class FileSynchronizer:
                 marker = f"/{branch}/"
                 if marker in change.path:
                     path = change.path.split(marker, 1)[1]
+        if dir_suffix:
+            marker = dir_suffix.strip("/\\")
+            if path == marker:
+                path = ""
+            elif path.startswith(f"{marker}/") or path.startswith(f"{marker}\\"):
+                path = path[len(marker) + 1 :]
         return Path(path) if path else None
 
     def _copy(self, source: Path, destination: Path) -> None:
