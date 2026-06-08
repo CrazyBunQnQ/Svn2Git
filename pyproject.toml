@@ -1,7 +1,7 @@
 [project]
 name = "svn2git"
 version = "0.1.0"
-description = "Synchronize complex SVN repositories into Git repositories and submodules."
+description = "Synchronize complex SVN repositories into complete Git repositories."
 requires-python = ">=3.12"
 dependencies = [
   "PyYAML>=6.0",

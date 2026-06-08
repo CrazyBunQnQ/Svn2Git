@@ -9,7 +9,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def test_handle_sync_request_preserves_sync_route_message():
     response = handle_sync_request(
         "suite",
-        config_path=FIXTURES / "application_submodules.yml",
+        config_path=FIXTURES / "application_modules.yml",
         log_xml_path=FIXTURES / "svn_log.xml",
         dry_run=True,
     )
@@ -22,7 +22,7 @@ def test_handle_sync_request_preserves_sync_route_message():
 def test_handle_sync_request_reports_missing_repo():
     response = handle_sync_request(
         "missing",
-        config_path=FIXTURES / "application_submodules.yml",
+        config_path=FIXTURES / "application_modules.yml",
         log_xml_path=FIXTURES / "svn_log.xml",
         dry_run=True,
     )
@@ -68,7 +68,7 @@ def test_handle_sync_request_uses_real_runner_when_not_dry_run(monkeypatch):
 
     response = handle_sync_request(
         "suite",
-        config_path=FIXTURES / "application_submodules.yml",
+        config_path=FIXTURES / "application_modules.yml",
         log_xml_path=None,
         dry_run=False,
     )

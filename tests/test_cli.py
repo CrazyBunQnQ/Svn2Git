@@ -6,11 +6,11 @@ from svn2git.cli import main
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_cli_dry_run_prints_submodule_paths(capsys):
+def test_cli_dry_run_prints_module_paths(capsys):
     exit_code = main([
         "sync",
         "--config",
-        str(FIXTURES / "application_submodules.yml"),
+        str(FIXTURES / "application_modules.yml"),
         "--repo",
         "suite",
         "--log-xml",
@@ -22,6 +22,7 @@ def test_cli_dry_run_prints_submodule_paths(capsys):
     output = capsys.readouterr().out
     assert "modules/billing" in output
     assert "modules/reporting" in output
+    assert "submodule:" not in output
 
 
 def test_cli_validate_rejects_invalid_config(capsys):

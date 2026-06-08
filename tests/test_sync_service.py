@@ -2,6 +2,7 @@ from pathlib import Path
 
 from svn2git.commands import CommandResult, DryRunRunner, RecordedCommand
 from svn2git.config import load_config
+from svn2git.config import ModuleConfig
 from svn2git.service import SyncService
 from svn2git.svn_log import ChangedPath, LogEntry, parse_svn_log_xml
 
@@ -9,8 +10,8 @@ from svn2git.svn_log import ChangedPath, LogEntry, parse_svn_log_xml
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_submodule_sync_orchestrates_submodule_before_parent_pointer():
-    config = load_config(FIXTURES / "application_submodules.yml")
+def test_sync_batches_modules_without_git_submodules():
+    config = load_config(FIXTURES / "application_modules.yml")
     entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
     runner = DryRunRunner()
 
@@ -18,10 +19,11 @@ def test_submodule_sync_orchestrates_submodule_before_parent_pointer():
     service.sync(config, "suite", entries, dry_run=True)
 
     command_text = [" ".join(command.args) for command in runner.commands]
-    assert "git submodule add ssh://git.example.com/suite/billing.git modules/billing" in command_text
+    assert all("git submodule" not in command for command in command_text)
+    assert all(".gitmodules" not in command for command in command_text)
     assert "svn update -r 41 Q:\\svn2git-fixture\\svn\\BillingDev" in command_text
     assert "git commit -m SVN version 41: Add billing feature" in command_text
-    assert command_text[-2:] == ["git add .gitmodules modules/billing modules/reporting", "git commit -m Update submodule pointers for SVN sync"]
+    assert command_text.count("git commit -m SVN version 41: Add billing feature") == 1
 
 
 def test_legacy_sync_does_not_emit_submodule_commands():
@@ -65,6 +67,30 @@ class BranchAwareDryRunRunner(DryRunRunner):
         return super().run(args, cwd=cwd)
 
 
+class ExistingRemoteRunner(DryRunRunner):
+    def run(self, args, cwd=None):
+        if args == ["git", "remote", "get-url", "origin"]:
+            self.commands.append(RecordedCommand(tuple(args), cwd))
+            return CommandResult(0, "ssh://git.example.com/suite.git\n", "")
+        return super().run(args, cwd=cwd)
+
+
+class MissingRemoteRunner(DryRunRunner):
+    def run(self, args, cwd=None):
+        if args == ["git", "remote", "get-url", "origin"]:
+            self.commands.append(RecordedCommand(tuple(args), cwd))
+            return CommandResult(2, "", "missing remote")
+        return super().run(args, cwd=cwd)
+
+
+class MismatchedRemoteRunner(DryRunRunner):
+    def run(self, args, cwd=None):
+        if args == ["git", "remote", "get-url", "origin"]:
+            self.commands.append(RecordedCommand(tuple(args), cwd))
+            return CommandResult(0, "ssh://git.example.com/other.git\n", "")
+        return super().run(args, cwd=cwd)
+
+
 def test_sync_raises_when_mutating_command_fails():
     config = load_config(FIXTURES / "application_legacy.yml")
     entries = [
@@ -85,8 +111,61 @@ def test_sync_raises_when_mutating_command_fails():
         raise AssertionError("sync should fail when git push fails")
 
 
-def test_mixed_module_revision_syncs_only_target_relevant_paths():
-    config = load_config(FIXTURES / "application_submodules.yml")
+def test_sync_validates_existing_repo_remote_url():
+    config = load_config(FIXTURES / "application_modules.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
+    runner = ExistingRemoteRunner()
+
+    SyncService(runner).sync(config, "suite", entries, dry_run=True)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git remote get-url origin" in command_text
+    assert "git remote add origin ssh://git.example.com/suite.git" not in command_text
+
+
+def test_sync_adds_missing_repo_remote_url():
+    config = load_config(FIXTURES / "application_modules.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
+    runner = MissingRemoteRunner()
+
+    SyncService(runner).sync(config, "suite", entries, dry_run=True)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git remote add origin ssh://git.example.com/suite.git" in command_text
+
+
+def test_sync_rejects_mismatched_repo_remote_url():
+    config = load_config(FIXTURES / "application_modules.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
+
+    try:
+        SyncService(MismatchedRemoteRunner()).sync(config, "suite", entries, dry_run=True)
+    except RuntimeError as exc:
+        assert "origin remote mismatch" in str(exc)
+    else:
+        raise AssertionError("sync should fail when origin remote does not match config")
+
+
+def test_sync_rejects_duplicate_module_target_paths():
+    config = load_config(FIXTURES / "application_modules.yml")
+    duplicate = ModuleConfig(
+        name="duplicate",
+        svn_project_path="Q:\\svn2git-fixture\\svn\\Duplicate",
+        target_path="modules/billing",
+    )
+    object.__setattr__(config.repositories["suite"], "modules", {**config.repositories["suite"].modules, "duplicate": duplicate})
+    entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
+
+    try:
+        SyncService(DryRunRunner()).sync(config, "suite", entries, dry_run=True)
+    except ValueError as exc:
+        assert "duplicate module target path" in str(exc)
+    else:
+        raise AssertionError("sync should fail for duplicate module target paths")
+
+
+def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
+    config = load_config(FIXTURES / "application_modules.yml")
     entry = LogEntry(
         revision=100,
         author="alice",

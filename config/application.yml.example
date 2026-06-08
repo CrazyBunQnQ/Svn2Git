@@ -21,7 +21,7 @@ git:
 # 也兼容旧 key 名 svn2git，但推荐使用 svn_git_mapping。
 svn_git_mapping:
   platform:
-    # SVN 仓库或分支根 URL，用于 svn log 读取提交记录；子模块未配置 svn_url 时会继承它。
+    # SVN 仓库或分支根 URL，用于 svn log 读取提交记录；模块未配置 svn_url 时会继承它。
     svn_url: your_svn_url
     # 本地 SVN 工作副本路径；同步时会在这里执行 svn update。
     svn_project_path: your_sync_svn_project_path
@@ -40,20 +40,20 @@ svn_git_mapping:
     dir_regx: .*/branches/([^/]+).*
 
   suite:
-    # 示例：一个父 Git 仓库下管理多个 Git 子模块。
+    # 示例：一个完整 Git 仓库下合并多个 SVN 模块。
     svn_url: https://svn.example.com/repos/main
     svn_project_path: F:\SvnRepo\Suite
     git_project_path: F:\GitRepo\Suite
-    # 子模块未配置 dir_regx 时会继承父仓库的分支识别规则。
+    # 顶层 Git 远端地址属于完整 Git 项目，不属于某个模块。
+    git_remote_url: ssh://git.example.com/suite.git
+    # 模块未配置 dir_regx 时会继承父仓库的分支识别规则。
     dir_regx: .*/branches/([^/]+).*
-    submodules:
+    modules:
       billing:
-        # 子模块自己的本地 SVN 工作副本路径。
+        # 模块自己的本地 SVN 工作副本路径。
         svn_project_path: F:\SvnRepo\Billing
-        # 子模块在父 Git 仓库中的相对路径。
-        git_submodule_path: modules/billing
-        # 子模块 Git 远端地址；首次同步时会用于 git submodule add。
-        git_remote_url: ssh://git.example.com/suite/billing.git
+        # 模块文件写入完整 Git 仓库中的相对路径；不会创建 Git submodule。
+        target_path: modules/billing
         # 分支级来源覆盖。key 是原始 SVN 分支名或 dir_regx 捕获出的分支名。
         branch_overrides:
           dev:
@@ -79,10 +79,9 @@ svn_git_mapping:
             # 将 SVN 分支 platform_2.13 同步到 Git 分支 2.13。
             branch_name: "2.13"
       reporting:
-        # 第二个子模块示例，展示子模块可以单独覆盖分支识别规则。
+        # 第二个模块示例，展示模块可以单独覆盖分支识别规则。
         svn_project_path: F:\SvnRepo\Reporting
-        git_submodule_path: modules/reporting
-        git_remote_url: ssh://git.example.com/suite/reporting.git
+        target_path: modules/reporting
         # 这里会把 /release/2024/... 识别为 Git 分支 2024。
         dir_regx: .*/release/([^/]+).*
 

@@ -40,8 +40,8 @@ class SyncPlan:
         for target_plan in self.target_plans:
             target = target_plan.target
             lines.append(f"- {target.name}: {target.svn_project_path} -> {target.git_path}")
-            if target.git_submodule_path:
-                lines.append(f"  submodule: {target.git_submodule_path} ({target.git_remote_url})")
+            if target.target_path:
+                lines.append(f"  module: {target.target_path}")
             for revision in target_plan.revisions:
                 lines.append(f"  SVN version {revision.revision}: {revision.message}")
                 lines.append(f"  branches: {', '.join(revision.branches)}")
@@ -69,7 +69,7 @@ def build_sync_plan(
 
 def _plan_target(target: SyncTarget, entries: list[LogEntry]) -> TargetPlan:
     revisions: list[PlannedRevision] = []
-    current_revision = _read_current_revision(target.git_path)
+    current_revision = _read_target_revision(target)
     for entry in entries:
         if entry.revision <= current_revision:
             continue
@@ -107,8 +107,26 @@ def _read_current_revision(git_path: str) -> int:
         return -1
 
 
+def _read_target_revision(target: SyncTarget) -> int:
+    if not target.parent_name and not target.target_path:
+        return _read_current_revision(target.git_path)
+    version_file = Path(target.git_path) / ".svn_versions" / _revision_key(target)
+    if not version_file.exists():
+        return -1
+    try:
+        return int(version_file.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return -1
+
+
+def _revision_key(target: SyncTarget) -> str:
+    return target.name.replace(":", "_").replace("/", "_").replace("\\", "_")
+
+
 def _is_relevant_change(target: SyncTarget, change: ChangedPath) -> bool:
     if not target.is_submodule:
+        return True
+    if _override_branch_for_change(target, change):
         return True
     marker = _target_marker(target)
     return marker in _normalize(change.path)

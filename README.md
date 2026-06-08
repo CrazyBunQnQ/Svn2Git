@@ -76,9 +76,9 @@ svn_git_mapping:
 
 由于项目结构复杂，不同的项目通过 `dir_regx` 正则表达式匹配分支...我太难了...
 
-#### Git 子模块映射
+#### SVN 模块映射
 
-如果多个 SVN 项目来自同一个 SVN 地址、只是工作副本路径不同，可以在同一个 Git 大项目下配置为子模块。子模块默认继承父仓库的 `svn_url`、`dir_regx` 和 `dir_suffix`，也可以单独覆盖。
+如果多个 SVN 模块共同组成一个完整 Git 项目，可以在同一个顶层项目下配置 `modules`。这些模块会作为普通目录写入同一个 Git 工作树，不会创建 Git submodule、`.gitmodules` 或子模块指针提交。模块默认继承顶层项目的 `svn_url`、`dir_regx` 和 `dir_suffix`，也可以单独覆盖。
 
 ```yaml
 svn_git_mapping:
@@ -86,12 +86,12 @@ svn_git_mapping:
     svn_url: https://svn.example.com/repos/main
     svn_project_path: F:\SvnRepo\Suite
     git_project_path: F:\GitRepo\Suite
+    git_remote_url: ssh://git.example.com/suite.git
     dir_regx: .*/branches/([^/]+).*
-    submodules:
+    modules:
       billing:
         svn_project_path: F:\SvnRepo\Billing
-        git_submodule_path: modules/billing
-        git_remote_url: ssh://git.example.com/suite/billing.git
+        target_path: modules/billing
         branch_overrides:
           dev:
             svn_url: https://svn.example.com/repos/billing-dev
@@ -107,12 +107,11 @@ svn_git_mapping:
             branch_name: "2.13"
       reporting:
         svn_project_path: F:\SvnRepo\Reporting
-        git_submodule_path: modules/reporting
-        git_remote_url: ssh://git.example.com/suite/reporting.git
+        target_path: modules/reporting
         dir_regx: .*/release/([^/]+).*
 ```
 
-同步时会先确保父 Git 仓库中存在对应子模块，再分别同步每个子模块工作区，最后在父仓库提交 `.gitmodules` 和子模块指针变更。
+同步时会在顶层 Git 仓库中切换目标分支，分别更新参与本次 SVN revision 的模块工作副本，把文件复制到各自 `target_path` 下，然后按 Git 项目、Git 分支、SVN revision 提交一次。
 
 如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。Common 的 `2.13` 分支会使用 `.../Singularity/Common/2.13/common`，分支名仍是 `2.13`，并通过 `dir_suffix: common` 去掉工作副本根目录前的 `common` 路径段；framework 的来源路径分支是 `platform_2.13`，会使用 `.../SMPlatform/branches/platform_2.13`，通过自己的 `dir_regx` 识别该分支下的任意模块路径，并通过 `branch_name: "2.13"` 同步到 Git 的 `2.13` 分支。其他分支仍使用 `billing` 模块自己的 `svn_project_path` 和 `dir_regx`，没有单独配置 `svn_url` 时继续继承父仓库的 `svn_url`。
 

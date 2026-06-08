@@ -16,13 +16,14 @@ class FileSynchronizer:
             relative_path = self._relative_path(change, target.dir_regex, target.dir_suffix)
             if relative_path is None:
                 continue
-            source = Path(target.svn_project_path) / relative_path
-            destination = git_root / relative_path
+            source_relative_path = self._source_relative_path(target, relative_path)
+            source = Path(target.svn_project_path) / source_relative_path
+            destination = self._safe_destination(git_root, self._destination_path(target, source_relative_path))
             if change.action in {"A", "M", "R"}:
                 self._copy(source, destination)
             elif change.action == "D":
                 self._delete(destination)
-        (git_root / ".svn_version").write_text(str(entry.revision), encoding="utf-8")
+        self._version_file(git_root, target).write_text(str(entry.revision), encoding="utf-8")
 
     def _relative_path(self, change: ChangedPath, branch_regex: str | None, dir_suffix: str | None = None) -> Path | None:
         path = change.path.strip("/")
@@ -57,3 +58,31 @@ class FileSynchronizer:
             shutil.rmtree(destination)
         elif destination.exists():
             destination.unlink()
+
+    def _source_relative_path(self, target: SyncTarget, relative_path: Path) -> Path:
+        if not target.target_path or ":" not in target.name:
+            return relative_path
+        module_name = target.name.split(":", 1)[1]
+        parts = relative_path.parts
+        if parts and parts[0].lower() == module_name.lower():
+            return Path(*parts[1:]) if len(parts) > 1 else Path()
+        return relative_path
+
+    def _destination_path(self, target: SyncTarget, relative_path: Path) -> Path:
+        if not target.target_path or target.target_path == ".":
+            return relative_path
+        return Path(target.target_path) / relative_path
+
+    def _safe_destination(self, git_root: Path, relative_path: Path) -> Path:
+        root = git_root.resolve()
+        destination = (git_root / relative_path).resolve()
+        if root != destination and root not in destination.parents:
+            raise ValueError("target path escapes git root")
+        return destination
+
+    def _version_file(self, git_root: Path, target: SyncTarget) -> Path:
+        if not target.parent_name and not target.target_path:
+            return git_root / ".svn_version"
+        version_dir = git_root / ".svn_versions"
+        version_dir.mkdir(parents=True, exist_ok=True)
+        return version_dir / target.name.replace(":", "_").replace("/", "_").replace("\\", "_")

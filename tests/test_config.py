@@ -8,19 +8,21 @@ from svn2git.config import ConfigError, load_config
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_load_repository_with_submodules():
-    config = load_config(FIXTURES / "application_submodules.yml")
+def test_loads_repository_modules_with_repo_remote():
+    config = load_config(FIXTURES / "application_modules.yml")
 
     suite = config.repositories["suite"]
     targets = suite.expand_targets()
 
     assert suite.svn_url == "https://svn.example.com/repos/main"
-    assert [target.name for target in targets] == ["suite", "suite:billing", "suite:reporting"]
-    assert [target.git_path for target in targets[1:]] == ["Q:\\svn2git-fixture\\git\\Suite\\modules\\billing", "Q:\\svn2git-fixture\\git\\Suite\\modules\\reporting"]
-    assert targets[1].svn_project_path == "Q:\\svn2git-fixture\\svn\\Billing"
-    assert targets[1].git_remote_url == "ssh://git.example.com/suite/billing.git"
-    assert targets[1].branch_overrides["dev"].svn_url == "https://svn.example.com/repos/billing-dev"
-    assert targets[1].branch_overrides["dev"].svn_project_path == "Q:\\svn2git-fixture\\svn\\BillingDev"
+    assert suite.git_remote_url == "ssh://git.example.com/suite.git"
+    assert [target.name for target in targets] == ["suite:billing", "suite:reporting"]
+    assert [target.git_path for target in targets] == ["Q:\\svn2git-fixture\\git\\Suite", "Q:\\svn2git-fixture\\git\\Suite"]
+    assert [target.target_path for target in targets] == ["modules/billing", "modules/reporting"]
+    assert targets[0].svn_project_path == "Q:\\svn2git-fixture\\svn\\Billing"
+    assert targets[0].git_remote_url == "ssh://git.example.com/suite.git"
+    assert targets[0].branch_overrides["dev"].svn_url == "https://svn.example.com/repos/billing-dev"
+    assert targets[0].branch_overrides["dev"].svn_project_path == "Q:\\svn2git-fixture\\svn\\BillingDev"
 
 
 def test_repository_branch_override_keeps_213_branch_as_string():
@@ -39,7 +41,12 @@ def test_repository_branch_override_keeps_213_branch_as_string():
     assert framework_override.branch_name == "2.13"
 
 
-def test_missing_submodule_path_is_rejected():
+def test_rejects_legacy_submodules_configuration():
+    with pytest.raises(ConfigError, match="submodules.*modules"):
+        load_config(FIXTURES / "application_submodules.yml")
+
+
+def test_missing_module_path_is_rejected():
     with pytest.raises(ConfigError, match="suite.billing.svn_project_path"):
         load_config(FIXTURES / "application_invalid_submodule.yml")
 

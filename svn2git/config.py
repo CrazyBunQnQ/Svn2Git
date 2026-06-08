@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import PureWindowsPath
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +26,10 @@ class SyncTarget:
     svn_url: str
     svn_project_path: str
     git_path: str
+    target_path: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
     parent_name: str | None = None
-    git_submodule_path: str | None = None
     git_remote_url: str | None = None
     branch_overrides: dict[str, BranchOverride] = field(default_factory=dict)
 
@@ -40,11 +39,10 @@ class SyncTarget:
 
 
 @dataclass(frozen=True)
-class SubmoduleConfig:
+class ModuleConfig:
     name: str
     svn_project_path: str
-    git_submodule_path: str
-    git_remote_url: str
+    target_path: str
     svn_url: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
@@ -57,36 +55,41 @@ class RepositoryConfig:
     svn_url: str
     svn_project_path: str
     git_project_path: str
+    git_remote_url: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
-    submodules: dict[str, SubmoduleConfig] = field(default_factory=dict)
+    modules: dict[str, ModuleConfig] = field(default_factory=dict)
     branch_overrides: dict[str, BranchOverride] = field(default_factory=dict)
 
     def expand_targets(self) -> list[SyncTarget]:
+        if not self.modules:
+            return [
+                SyncTarget(
+                    name=self.name,
+                    svn_url=self.svn_url,
+                    svn_project_path=self.svn_project_path,
+                    git_path=self.git_project_path,
+                    git_remote_url=self.git_remote_url,
+                    dir_regex=self.dir_regex,
+                    dir_suffix=self.dir_suffix,
+                    branch_overrides=self.branch_overrides,
+                )
+            ]
         targets = [
-            SyncTarget(
-                name=self.name,
-                svn_url=self.svn_url,
-                svn_project_path=self.svn_project_path,
-                git_path=self.git_project_path,
-                dir_regex=self.dir_regex,
-                dir_suffix=self.dir_suffix,
-                branch_overrides=self.branch_overrides,
-            )
         ]
-        for submodule in self.submodules.values():
+        for module in self.modules.values():
             targets.append(
                 SyncTarget(
-                    name=f"{self.name}:{submodule.name}",
-                    svn_url=submodule.svn_url or self.svn_url,
-                    svn_project_path=submodule.svn_project_path,
-                    git_path=_join_path(self.git_project_path, submodule.git_submodule_path),
-                    dir_regex=submodule.dir_regex or self.dir_regex,
-                    dir_suffix=submodule.dir_suffix if submodule.dir_suffix is not None else self.dir_suffix,
+                    name=f"{self.name}:{module.name}",
+                    svn_url=module.svn_url or self.svn_url,
+                    svn_project_path=module.svn_project_path,
+                    git_path=self.git_project_path,
+                    target_path=module.target_path,
+                    dir_regex=module.dir_regex or self.dir_regex,
+                    dir_suffix=module.dir_suffix if module.dir_suffix is not None else self.dir_suffix,
                     parent_name=self.name,
-                    git_submodule_path=submodule.git_submodule_path,
-                    git_remote_url=submodule.git_remote_url,
-                    branch_overrides=submodule.branch_overrides,
+                    git_remote_url=self.git_remote_url,
+                    branch_overrides=module.branch_overrides,
                 )
             )
         return targets
@@ -136,18 +139,20 @@ def _parse_repository(name: str, raw: dict[str, Any]) -> RepositoryConfig:
     svn_project_path = _required(raw, f"{name}.svn_project_path", "svn_project_path")
     git_project_path = _required(raw, f"{name}.git_project_path", "git_project_path")
 
-    submodules: dict[str, SubmoduleConfig] = {}
-    for submodule_name, submodule_raw in (raw.get("submodules") or {}).items():
-        prefix = f"{name}.{submodule_name}"
-        submodules[submodule_name] = SubmoduleConfig(
-            name=submodule_name,
-            svn_url=submodule_raw.get("svn_url"),
-            svn_project_path=_required(submodule_raw, f"{prefix}.svn_project_path", "svn_project_path"),
-            git_submodule_path=_required(submodule_raw, f"{prefix}.git_submodule_path", "git_submodule_path"),
-            git_remote_url=_required(submodule_raw, f"{prefix}.git_remote_url", "git_remote_url"),
-            dir_regex=submodule_raw.get("dir_regx") or submodule_raw.get("dir_regex"),
-            dir_suffix=submodule_raw.get("dir_suffix"),
-            branch_overrides=_parse_branch_overrides(prefix, submodule_raw.get("branch_overrides") or {}),
+    if raw.get("submodules"):
+        raise ConfigError(f"{name}.submodules is no longer supported; use modules with target_path and repo-level git_remote_url")
+
+    modules: dict[str, ModuleConfig] = {}
+    for module_name, module_raw in (raw.get("modules") or {}).items():
+        prefix = f"{name}.{module_name}"
+        modules[module_name] = ModuleConfig(
+            name=module_name,
+            svn_url=module_raw.get("svn_url"),
+            svn_project_path=_required(module_raw, f"{prefix}.svn_project_path", "svn_project_path"),
+            target_path=_required(module_raw, f"{prefix}.target_path", "target_path"),
+            dir_regex=module_raw.get("dir_regx") or module_raw.get("dir_regex"),
+            dir_suffix=module_raw.get("dir_suffix"),
+            branch_overrides=_parse_branch_overrides(prefix, module_raw.get("branch_overrides") or {}),
         )
 
     return RepositoryConfig(
@@ -155,9 +160,10 @@ def _parse_repository(name: str, raw: dict[str, Any]) -> RepositoryConfig:
         svn_url=svn_url,
         svn_project_path=svn_project_path,
         git_project_path=git_project_path,
+        git_remote_url=raw.get("git_remote_url"),
         dir_regex=raw.get("dir_regx") or raw.get("dir_regex"),
         dir_suffix=raw.get("dir_suffix"),
-        submodules=submodules,
+        modules=modules,
         branch_overrides=_parse_branch_overrides(name, raw.get("branch_overrides") or {}),
     )
 
@@ -181,7 +187,3 @@ def _required(raw: dict[str, Any], label: str, key: str) -> str:
     if value is None or value == "":
         raise ConfigError(f"{label} is required")
     return str(value)
-
-
-def _join_path(root: str, child: str) -> str:
-    return str(PureWindowsPath(root) / child.replace("/", "\\")) if "\\" in root else str(Path(root) / child)

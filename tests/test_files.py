@@ -4,6 +4,8 @@ from svn2git.config import SyncTarget
 from svn2git.files import FileSynchronizer
 from svn2git.svn_log import ChangedPath, LogEntry
 
+import pytest
+
 
 def test_file_synchronizer_copies_modified_files_and_writes_revision(tmp_path):
     svn_root = tmp_path / "svn"
@@ -88,3 +90,53 @@ def test_file_synchronizer_strips_configured_dir_suffix(tmp_path):
 
     assert (git_root / "common-facade" / "src" / "Fix.java").read_text(encoding="utf-8") == "class Fix {}\n"
     assert not (git_root / "common" / "common-facade").exists()
+
+
+def test_file_synchronizer_writes_module_files_under_target_path(tmp_path):
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('module')\n", encoding="utf-8")
+
+    entry = LogEntry(
+        revision=50,
+        author="alice",
+        date=None,
+        message="Add module file",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    target = SyncTarget(
+        name="suite:billing",
+        svn_url="https://svn.example.com/repos/main",
+        svn_project_path=str(svn_root),
+        git_path=str(git_root),
+        dir_regex=r".*/branches/([^/]+).*",
+        target_path="modules/billing",
+    )
+
+    FileSynchronizer().apply_entry(target, entry)
+
+    assert (git_root / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('module')\n"
+    assert (git_root / ".svn_versions" / "suite_billing").read_text(encoding="utf-8") == "50"
+
+
+def test_file_synchronizer_rejects_target_path_escape(tmp_path):
+    entry = LogEntry(
+        revision=51,
+        author="alice",
+        date=None,
+        message="Escape",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    target = SyncTarget(
+        name="suite:billing",
+        svn_url="https://svn.example.com/repos/main",
+        svn_project_path=str(tmp_path / "svn"),
+        git_path=str(tmp_path / "git"),
+        dir_regex=r".*/branches/([^/]+).*",
+        target_path="../outside",
+    )
+
+    with pytest.raises(ValueError, match="target path escapes git root"):
+        FileSynchronizer().apply_entry(target, entry)

@@ -1,0 +1,34 @@
+svn:
+  username: svn_user
+  password: svn_password
+git:
+  username: git_user
+  password: git_password
+  user_map:
+    alice: alice@example.com
+    bob: bob@example.com
+svn_git_mapping:
+  suite:
+    svn_url: https://svn.example.com/repos/main
+    svn_project_path: Q:\svn2git-fixture\svn\Suite
+    git_project_path: Q:\svn2git-fixture\git\Suite
+    git_remote_url: ssh://git.example.com/suite.git
+    dir_regx: .*/branches/([^/]+).*
+    modules:
+      billing:
+        svn_project_path: Q:\svn2git-fixture\svn\Billing
+        target_path: modules/billing
+        branch_overrides:
+          dev:
+            svn_url: https://svn.example.com/repos/billing-dev
+            svn_project_path: Q:\svn2git-fixture\svn\BillingDev
+      reporting:
+        svn_project_path: Q:\svn2git-fixture\svn\Reporting
+        target_path: modules/reporting
+        dir_regx: .*/release/([^/]+).*
+  archive:
+    svn_url: https://svn.example.com/repos/archive
+    svn_project_path: Q:\svn2git-fixture\svn\Archive
+    git_project_path: Q:\svn2git-fixture\git\Archive
+    git_remote_url: ssh://git.example.com/archive.git
+    dir_regx: .*/branches/([^/]+).*
