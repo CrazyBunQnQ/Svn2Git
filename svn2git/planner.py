@@ -78,22 +78,24 @@ def _plan_target(target: SyncTarget, entries: list[LogEntry]) -> TargetPlan:
             continue
         filtered_entry = LogEntry(entry.revision, entry.author, entry.date, entry.message, relevant_paths)
         grouped = _group_changes_by_branch(target, filtered_entry)
-        source_branches = tuple(sorted(grouped))
-        source = _source_for_branches(target, source_branches)
-        revisions.append(
-            PlannedRevision(
-                revision=entry.revision,
-                author=entry.author,
-                message=entry.message,
-                branches=_branch_names_for_sources(target, source_branches),
-                git_branch=_git_branch_for_sources(target, source_branches),
-                svn_url=source[0],
-                svn_project_path=source[1],
-                dir_regex=source[2],
-                dir_suffix=source[3],
-                entry=filtered_entry,
+        for branch, changes in sorted(grouped.items()):
+            source_branches = (branch,)
+            source = _source_for_branches(target, source_branches)
+            branch_entry = LogEntry(entry.revision, entry.author, entry.date, entry.message, changes)
+            revisions.append(
+                PlannedRevision(
+                    revision=entry.revision,
+                    author=entry.author,
+                    message=entry.message,
+                    branches=_branch_names_for_sources(target, source_branches),
+                    git_branch=_git_branch_for_sources(target, source_branches),
+                    svn_url=source[0],
+                    svn_project_path=source[1],
+                    dir_regex=source[2],
+                    dir_suffix=source[3],
+                    entry=branch_entry,
+                )
             )
-        )
     return TargetPlan(target=target, revisions=tuple(revisions))
 
 

@@ -216,6 +216,33 @@ def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
     assert ("suite:reporting", ["/repo/project/release/2.0/reporting/report.txt"]) in recorder.applied
 
 
+def test_same_svn_revision_syncs_each_branch_with_only_its_paths():
+    config = load_config(FIXTURES / "application_legacy.yml")
+    entry = LogEntry(
+        revision=100,
+        author="alice",
+        date=None,
+        message="Patch two branches",
+        changed_paths=[
+            ChangedPath("/repo/project/branches/dev/src/app.py", "M"),
+            ChangedPath("/repo/project/branches/release/src/app.py", "M"),
+        ],
+    )
+    recorder = RecordingFileSynchronizer()
+    runner = BranchAwareDryRunRunner()
+
+    SyncService(runner, file_synchronizer=recorder).sync(config, "legacy", [entry], dry_run=False, push=False)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git checkout -B dev" in command_text
+    assert "git checkout -B release" in command_text
+    assert command_text.count("git commit -m SVN version 100: Patch two branches") == 2
+    assert recorder.applied == [
+        ("legacy", ["/repo/project/branches/dev/src/app.py"]),
+        ("legacy", ["/repo/project/branches/release/src/app.py"]),
+    ]
+
+
 def test_sync_uses_branch_override_regex_for_file_application(tmp_path):
     config = load_config(FIXTURES / "application_singularity.yml")
     object.__setattr__(config.repositories["singularity"], "git_project_path", str(tmp_path))

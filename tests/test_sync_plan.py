@@ -44,6 +44,31 @@ def test_sync_plan_skips_revisions_at_or_before_svn_version(tmp_path):
     assert [revision.revision for revision in plan.target_plans[0].revisions] == [42]
 
 
+def test_same_svn_revision_is_split_by_git_branch():
+    config = load_config(FIXTURES / "application_legacy.yml")
+    entries = [
+        LogEntry(
+            revision=100,
+            author="alice",
+            date=None,
+            message="Patch two branches",
+            changed_paths=[
+                ChangedPath("/repo/project/branches/dev/src/app.py", "M"),
+                ChangedPath("/repo/project/branches/release/src/app.py", "M"),
+            ],
+        )
+    ]
+
+    plan = build_sync_plan(config, "legacy", entries, dry_run=True)
+    revisions = plan.target_plans[0].revisions
+
+    assert [revision.git_branch for revision in revisions] == ["dev", "release"]
+    assert [[change.path for change in revision.entry.changed_paths] for revision in revisions] == [
+        ["/repo/project/branches/dev/src/app.py"],
+        ["/repo/project/branches/release/src/app.py"],
+    ]
+
+
 def test_module_checkpoint_does_not_skip_other_modules(tmp_path):
     config = load_config(FIXTURES / "application_modules.yml")
     entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
