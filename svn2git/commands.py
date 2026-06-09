@@ -19,7 +19,7 @@ class CommandResult:
 
 class CommandRunner:
     def run(self, args: list[str], cwd: str | None = None) -> CommandResult:
-        completed = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+        completed = subprocess.run(args, cwd=cwd, capture_output=True, text=True, errors="replace", check=False)
         return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
     def require(self, args: list[str], cwd: str | None = None) -> CommandResult:

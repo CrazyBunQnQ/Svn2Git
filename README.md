@@ -96,15 +96,6 @@ svn_git_mapping:
           dev:
             svn_url: https://svn.example.com/repos/billing-dev
             svn_project_path: F:\SvnRepo\BillingDev
-          "2.13":
-            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
-            svn_project_path: F:\SvnTest\SingularityCommon-2.13
-            dir_suffix: common
-          platform_2.13:
-            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
-            svn_project_path: F:\SvnTest\SingularityFramework-2.13
-            dir_regx: .*/branches/([^/]+)/.*
-            branch_name: "2.13"
       reporting:
         svn_project_path: F:\SvnRepo\Reporting
         target_path: modules/reporting
@@ -113,7 +104,41 @@ svn_git_mapping:
 
 同步时会在顶层 Git 仓库中切换目标分支，分别更新参与本次 SVN revision 的模块工作副本，把文件复制到各自 `target_path` 下，然后按 Git 项目、Git 分支、SVN revision 提交一次。
 
-如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。Common 的 `2.13` 分支会使用 `.../Singularity/Common/2.13/common`，分支名仍是 `2.13`，并通过 `dir_suffix: common` 去掉工作副本根目录前的 `common` 路径段；framework 的来源路径分支是 `platform_2.13`，会使用 `.../SMPlatform/branches/platform_2.13`，通过自己的 `dir_regx` 识别该分支下的任意模块路径，并通过 `branch_name: "2.13"` 同步到 Git 的 `2.13` 分支。其他分支仍使用 `billing` 模块自己的 `svn_project_path` 和 `dir_regx`，没有单独配置 `svn_url` 时继续继承父仓库的 `svn_url`。
+如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。真实同步默认会在提交后执行 `git push --all`；只想验证本地 Git 提交时加 `--no-push`。
+
+Singularity 这类项目可以把 Common 和 framework 配成同一个 Git 项目下的两个 SVN 模块。两个模块都写入 Git 根目录，所以 `target_path` 使用 `.`；它们的实际文件目录由 SVN 变更路径和 `dir_suffix` 决定。
+
+```yaml
+svn_git_mapping:
+  singularity:
+    svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity
+    svn_project_path: F:\SvnTest\Singularity
+    git_project_path: F:\Svn2GitTest\Singularity
+    modules:
+      common:
+        svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity/Common
+        svn_project_path: F:\SvnTest\SingularityCommon
+        target_path: .
+        dir_regx: .*/Common/([^/]+)/common/.*
+        branch_overrides:
+          "2.13":
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
+            svn_project_path: F:\SvnTest\SingularityCommon-2.13
+            dir_suffix: common
+      framework:
+        svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/branches/Singularity
+        svn_project_path: F:\SvnTest\SingularityFramework
+        target_path: .
+        dir_regx: .*/branches/Singularity/([^/]+)/framework/.*
+        branch_overrides:
+          platform_2.13:
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
+            svn_project_path: F:\SvnTest\SingularityFramework-2.13
+            dir_regx: .*/branches/([^/]+)/.*
+            branch_name: "2.13"
+```
+
+Common 默认分支来自 `.../IOTP/Tobacco/trunk/Singularity/Common/{分支名}/common`，`2.13` 分支单独覆盖到 `.../SafeMg/Singularity/Common/2.13/common`，Git 分支仍是 `2.13`。framework 默认分支来自 `.../IOTP/Tobacco/branches/Singularity/{分支名}/framework`，但 `2.13` 的 SVN 源分支名是 `platform_2.13`，因此覆盖项 key 使用 `platform_2.13`，再通过 `branch_name: "2.13"` 写入 Git 的 `2.13` 分支。
 
 #### 邮件提醒
 

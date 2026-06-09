@@ -28,13 +28,15 @@ def test_loads_repository_modules_with_repo_remote():
 def test_repository_branch_override_keeps_213_branch_as_string():
     config = load_config(FIXTURES / "application_singularity.yml")
 
-    target = config.repositories["singularity"].expand_targets()[0]
-    common_override = target.branch_overrides["2.13"]
-    framework_override = target.branch_overrides["platform_2.13"]
+    common_target, framework_target = config.repositories["singularity"].expand_targets()
+    common_override = common_target.branch_overrides["2.13"]
+    framework_override = framework_target.branch_overrides["platform_2.13"]
 
+    assert common_target.target_path == "."
     assert common_override.svn_url == "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common"
     assert common_override.svn_project_path == "F:\\SvnTest\\SingularityCommon-2.13"
     assert common_override.dir_suffix == "common"
+    assert framework_target.target_path == "."
     assert framework_override.svn_url == "https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13"
     assert framework_override.svn_project_path == "F:\\SvnTest\\SingularityFramework-2.13"
     assert framework_override.dir_regex == r".*/branches/([^/]+)/.*"

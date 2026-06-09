@@ -15,12 +15,12 @@ class SyncService:
         self.runner = runner
         self.file_synchronizer = file_synchronizer or FileSynchronizer()
 
-    def sync(self, config: AppConfig, repo_name: str, entries: list[LogEntry], dry_run: bool = False) -> SyncPlan:
+    def sync(self, config: AppConfig, repo_name: str, entries: list[LogEntry], dry_run: bool = False, push: bool = True) -> SyncPlan:
         plan = build_sync_plan(config, repo_name, entries, dry_run=dry_run)
-        self._sync_plan(plan, dry_run)
+        self._sync_plan(plan, dry_run, push)
         return plan
 
-    def _sync_plan(self, plan: SyncPlan, dry_run: bool) -> None:
+    def _sync_plan(self, plan: SyncPlan, dry_run: bool, push: bool) -> None:
         self._validate_module_targets(plan)
         batches = defaultdict(list)
         for target_plan in plan.target_plans:
@@ -42,7 +42,8 @@ class SyncService:
             if first_revision.message:
                 message = f"{message}: {first_revision.message}"
             self.runner.require(["git", "commit", "-m", message], cwd=target.git_path)
-            self.runner.require(["git", "push", "--all"], cwd=target.git_path)
+            if push:
+                self.runner.require(["git", "push", "--all"], cwd=target.git_path)
 
     def _sync_target(self, target: SyncTarget, revisions, dry_run: bool) -> None:
         for revision in revisions:
@@ -67,6 +68,8 @@ class SyncService:
             if not target.target_path:
                 continue
             normalized = target.target_path.replace("\\", "/").strip("/")
+            if normalized in {"", "."}:
+                continue
             if normalized in seen_roots:
                 raise ValueError(f"duplicate module target path: {target.target_path}")
             seen_roots.add(normalized)

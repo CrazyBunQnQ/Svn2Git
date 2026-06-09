@@ -61,29 +61,45 @@ svn_git_mapping:
             svn_url: https://svn.example.com/repos/billing-dev
             # 分支覆盖必须指定自己的本地 SVN 工作副本路径。
             svn_project_path: F:\SvnRepo\BillingDev
-          # 数字样式分支名必须加引号，否则 YAML 会把 2.13 当作小数。
-          "2.13":
-            # Common 2.13 的真实 SVN 来源路径。
-            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
-            # Common 2.13 对应的本地 SVN 工作副本路径。
-            svn_project_path: F:\SvnTest\SingularityCommon-2.13
-            # 从复制到 Git 的相对路径中去掉 common 这一层，避免生成 common/common-facade。
-            dir_suffix: common
-          platform_2.13:
-            # Framework 2.13 的 SVN 源分支名是 platform_2.13。
-            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
-            # Framework 2.13 对应的本地 SVN 工作副本路径。
-            svn_project_path: F:\SvnTest\SingularityFramework-2.13
-            # 覆盖父级分支识别规则，用于匹配 platform_2.13 下任意模块路径。
-            dir_regx: .*/branches/([^/]+)/.*
-            # 将 SVN 分支 platform_2.13 同步到 Git 分支 2.13。
-            branch_name: "2.13"
       reporting:
         # 第二个模块示例，展示模块可以单独覆盖分支识别规则。
         svn_project_path: F:\SvnRepo\Reporting
         target_path: modules/reporting
         # 这里会把 /release/2024/... 识别为 Git 分支 2024。
         dir_regx: .*/release/([^/]+).*
+
+  singularity:
+    # Singularity 示例：Common 和 framework 是两个 SVN 模块，合并成一个完整 Git 项目。
+    svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity
+    svn_project_path: F:\SvnTest\Singularity
+    git_project_path: F:\Svn2GitTest\Singularity
+    modules:
+      common:
+        svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity/Common
+        svn_project_path: F:\SvnTest\SingularityCommon
+        # 写入 Git 根目录；最终路径由 SVN 变更路径和 dir_suffix 决定。
+        target_path: .
+        dir_regx: .*/Common/([^/]+)/common/.*
+        branch_overrides:
+          # 数字样式分支名必须加引号，否则 YAML 会把 2.13 当作小数。
+          "2.13":
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common
+            svn_project_path: F:\SvnTest\SingularityCommon-2.13
+            # 去掉 Common 工作副本根目录前的 common 路径段，避免生成 common/common-facade。
+            dir_suffix: common
+      framework:
+        svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/branches/Singularity
+        svn_project_path: F:\SvnTest\SingularityFramework
+        target_path: .
+        dir_regx: .*/branches/Singularity/([^/]+)/framework/.*
+        branch_overrides:
+          # framework 2.13 的 SVN 源分支名是 platform_2.13。
+          platform_2.13:
+            svn_url: https://192.168.0.182:8443/repo/codes/SafeMg/SMPlatform/branches/platform_2.13
+            svn_project_path: F:\SvnTest\SingularityFramework-2.13
+            dir_regx: .*/branches/([^/]+)/.*
+            # 将 SVN 分支 platform_2.13 同步到 Git 分支 2.13。
+            branch_name: "2.13"
 
 # 邮件提醒配置占位。当前 Python 同步逻辑只解析保存 mail 字段，暂未实际发送邮件。
 mail:

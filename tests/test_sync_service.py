@@ -111,6 +111,26 @@ def test_sync_raises_when_mutating_command_fails():
         raise AssertionError("sync should fail when git push fails")
 
 
+def test_sync_can_skip_git_push_for_local_verification():
+    config = load_config(FIXTURES / "application_legacy.yml")
+    entries = [
+        LogEntry(
+            revision=999999999,
+            author="alice",
+            date=None,
+            message="Local verification",
+            changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+        )
+    ]
+    runner = DryRunRunner()
+
+    SyncService(runner).sync(config, "legacy", entries, dry_run=True, push=False)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git commit -m SVN version 999999999: Local verification" in command_text
+    assert all("git push" not in command for command in command_text)
+
+
 def test_sync_validates_existing_repo_remote_url():
     config = load_config(FIXTURES / "application_modules.yml")
     entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
@@ -164,6 +184,18 @@ def test_sync_rejects_duplicate_module_target_paths():
         raise AssertionError("sync should fail for duplicate module target paths")
 
 
+def test_sync_allows_multiple_modules_targeting_git_root():
+    config = load_config(FIXTURES / "application_singularity.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log_singularity.xml").read_text(encoding="utf-8"))
+    runner = DryRunRunner()
+
+    SyncService(runner).sync(config, "singularity", entries, dry_run=True, push=False)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git commit -m SVN version 213: Patch Common 2.13" in command_text
+    assert "git commit -m SVN version 214: Patch framework platform_2.13" in command_text
+
+
 def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
     config = load_config(FIXTURES / "application_modules.yml")
     entry = LogEntry(
@@ -204,6 +236,6 @@ def test_sync_uses_branch_override_regex_for_file_application(tmp_path):
     assert "svn update -r 213 F:\\SvnTest\\SingularityCommon-2.13" in command_text
     assert "svn update -r 214 F:\\SvnTest\\SingularityFramework-2.13" in command_text
     assert recorder.applied == [
-        ("singularity", ["/repo/codes/SafeMg/Singularity/Common/2.13/common/src/Fix.java"]),
-        ("singularity", ["/repo/codes/SafeMg/SMPlatform/branches/platform_2.13/platform-resource/src/Fix.java"]),
+        ("singularity:common", ["/repo/codes/SafeMg/Singularity/Common/2.13/common/src/Fix.java"]),
+        ("singularity:framework", ["/repo/codes/SafeMg/SMPlatform/branches/platform_2.13/platform-resource/src/Fix.java"]),
     ]

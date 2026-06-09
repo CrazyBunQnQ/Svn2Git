@@ -115,12 +115,17 @@ def test_module_plan_matches_branch_override_without_module_name_segment(tmp_pat
 def test_repository_branch_overrides_resolve_common_and_framework_213_sources(tmp_path):
     config = load_config(FIXTURES / "application_singularity.yml")
     entries = parse_svn_log_xml((FIXTURES / "svn_log_singularity.xml").read_text(encoding="utf-8"))
-    target = config.repositories["singularity"].expand_targets()[0]
-    object.__setattr__(target, "git_path", str(tmp_path))
+    targets = config.repositories["singularity"].expand_targets()
+    overrides = {}
+    for target in targets:
+        object.__setattr__(target, "git_path", str(tmp_path))
+        overrides[target.name] = target
 
-    plan = build_sync_plan(config, "singularity", entries, dry_run=True, target_overrides={"singularity": target})
-    common_revision, framework_revision = plan.target_plans[0].revisions
+    plan = build_sync_plan(config, "singularity", entries, dry_run=True, target_overrides=overrides)
+    common_revision = plan.target_plans[0].revisions[0]
+    framework_revision = plan.target_plans[1].revisions[0]
 
+    assert [target.name for target in plan.targets] == ["singularity:common", "singularity:framework"]
     assert common_revision.branches == ("2.13",)
     assert common_revision.git_branch == "2.13"
     assert common_revision.svn_url == "https://192.168.0.182:8443/repo/codes/SafeMg/Singularity/Common/2.13/common"

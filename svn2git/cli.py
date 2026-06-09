@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from svn2git.commands import CommandRunner, DryRunRunner
-from svn2git.config import ConfigError, load_config
+from svn2git.config import AppConfig, ConfigError, RepositoryConfig, load_config
 from svn2git.service import SyncService
 from svn2git.svn_client import SvnClient
 from svn2git.svn_log import parse_svn_log_xml
@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     sync_parser.add_argument("--repo", required=True)
     sync_parser.add_argument("--log-xml")
     sync_parser.add_argument("--dry-run", action="store_true")
+    sync_parser.add_argument("--no-push", action="store_true")
 
     args = parser.parse_args(argv)
     try:
@@ -37,13 +38,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.repo == "all":
                 for repo_name in config.repositories:
                     entries = _load_entries(config, repo_name, runner, args.log_xml, args.dry_run)
-                    plan = service.sync(config, repo_name, entries, dry_run=args.dry_run)
+                    plan = service.sync(config, repo_name, entries, dry_run=args.dry_run, push=not args.no_push)
                     print(plan.render())
                 if isinstance(runner, DryRunRunner):
                     _print_commands(runner)
                 return 0
             entries = _load_entries(config, args.repo, runner, args.log_xml, args.dry_run)
-            plan = service.sync(config, args.repo, entries, dry_run=args.dry_run)
+            plan = service.sync(config, args.repo, entries, dry_run=args.dry_run, push=not args.no_push)
             print(plan.render())
             if isinstance(runner, DryRunRunner):
                 _print_commands(runner)
@@ -67,7 +68,19 @@ def _load_entries(config, repo_name: str, runner, log_xml: str | None, dry_run: 
     if dry_run:
         raise ValueError("--log-xml is required for dry-run sync")
     repository = config.repositories[repo_name]
-    return parse_svn_log_xml(SvnClient(runner).log_xml(repository.svn_url))
+    client = SvnClient(runner)
+    entries = []
+    for svn_url in _svn_log_urls(repository):
+        entries.extend(parse_svn_log_xml(client.log_xml(svn_url, config.svn_username, config.svn_password)))
+    return entries
+
+
+def _svn_log_urls(repository: RepositoryConfig) -> list[str]:
+    urls = []
+    for target in repository.expand_targets():
+        urls.append(target.svn_url)
+        urls.extend(override.svn_url for override in target.branch_overrides.values() if override.svn_url)
+    return list(dict.fromkeys(urls))
 
 
 if __name__ == "__main__":
