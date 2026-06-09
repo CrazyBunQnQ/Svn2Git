@@ -31,6 +31,7 @@ class SyncTarget:
     dir_suffix: str | None = None
     parent_name: str | None = None
     git_remote_url: str | None = None
+    full_sync_interval: int = 1000
     branch_overrides: dict[str, BranchOverride] = field(default_factory=dict)
 
     @property
@@ -46,6 +47,7 @@ class ModuleConfig:
     svn_url: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
+    full_sync_interval: int | None = None
     branch_overrides: dict[str, BranchOverride] = field(default_factory=dict)
 
 
@@ -58,6 +60,7 @@ class RepositoryConfig:
     git_remote_url: str | None = None
     dir_regex: str | None = None
     dir_suffix: str | None = None
+    full_sync_interval: int = 1000
     modules: dict[str, ModuleConfig] = field(default_factory=dict)
     branch_overrides: dict[str, BranchOverride] = field(default_factory=dict)
 
@@ -72,6 +75,7 @@ class RepositoryConfig:
                     git_remote_url=self.git_remote_url,
                     dir_regex=self.dir_regex,
                     dir_suffix=self.dir_suffix,
+                    full_sync_interval=self.full_sync_interval,
                     branch_overrides=self.branch_overrides,
                 )
             ]
@@ -87,6 +91,9 @@ class RepositoryConfig:
                     target_path=module.target_path,
                     dir_regex=module.dir_regex or self.dir_regex,
                     dir_suffix=module.dir_suffix if module.dir_suffix is not None else self.dir_suffix,
+                    full_sync_interval=(
+                        module.full_sync_interval if module.full_sync_interval is not None else self.full_sync_interval
+                    ),
                     parent_name=self.name,
                     git_remote_url=self.git_remote_url,
                     branch_overrides=module.branch_overrides,
@@ -152,6 +159,11 @@ def _parse_repository(name: str, raw: dict[str, Any]) -> RepositoryConfig:
             target_path=_required(module_raw, f"{prefix}.target_path", "target_path"),
             dir_regex=module_raw.get("dir_regx") or module_raw.get("dir_regex"),
             dir_suffix=module_raw.get("dir_suffix"),
+            full_sync_interval=_optional_non_negative_int(
+                module_raw,
+                f"{prefix}.full_sync_interval",
+                "full_sync_interval",
+            ),
             branch_overrides=_parse_branch_overrides(prefix, module_raw.get("branch_overrides") or {}),
         )
 
@@ -163,6 +175,7 @@ def _parse_repository(name: str, raw: dict[str, Any]) -> RepositoryConfig:
         git_remote_url=raw.get("git_remote_url"),
         dir_regex=raw.get("dir_regx") or raw.get("dir_regex"),
         dir_suffix=raw.get("dir_suffix"),
+        full_sync_interval=_non_negative_int(raw, f"{name}.full_sync_interval", "full_sync_interval", default=1000),
         modules=modules,
         branch_overrides=_parse_branch_overrides(name, raw.get("branch_overrides") or {}),
     )
@@ -187,3 +200,20 @@ def _required(raw: dict[str, Any], label: str, key: str) -> str:
     if value is None or value == "":
         raise ConfigError(f"{label} is required")
     return str(value)
+
+
+def _optional_non_negative_int(raw: dict[str, Any], label: str, key: str) -> int | None:
+    if key not in raw or raw.get(key) is None:
+        return None
+    return _non_negative_int(raw, label, key, default=0)
+
+
+def _non_negative_int(raw: dict[str, Any], label: str, key: str, default: int) -> int:
+    value = raw.get(key, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be a non-negative integer") from exc
+    if parsed < 0:
+        raise ConfigError(f"{label} must be a non-negative integer")
+    return parsed

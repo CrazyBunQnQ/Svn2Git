@@ -48,9 +48,13 @@ class FailingRunner(DryRunRunner):
 class RecordingFileSynchronizer:
     def __init__(self):
         self.applied = []
+        self.full_synced = []
 
     def apply_entry(self, target, entry):
         self.applied.append((target.name, [change.path for change in entry.changed_paths]))
+
+    def apply_full_sync(self, target, entry, git_branch):
+        self.full_synced.append((target.name, entry.revision, git_branch))
 
 
 class BranchAwareDryRunRunner(DryRunRunner):
@@ -241,6 +245,32 @@ def test_same_svn_revision_syncs_each_branch_with_only_its_paths():
         ("legacy", ["/repo/project/branches/dev/src/app.py"]),
         ("legacy", ["/repo/project/branches/release/src/app.py"]),
     ]
+
+
+def test_sync_uses_full_sync_only_for_branch_that_reaches_interval(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(tmp_path))
+    full_sync_dir = tmp_path / ".svn_full_sync_versions" / "legacy"
+    full_sync_dir.mkdir(parents=True)
+    (full_sync_dir / "dev").write_text("100", encoding="utf-8")
+    (full_sync_dir / "release").write_text("101", encoding="utf-8")
+    entry = LogEntry(
+        revision=1100,
+        author="alice",
+        date=None,
+        message="Patch two branches",
+        changed_paths=[
+            ChangedPath("/repo/project/branches/dev/src/app.py", "M"),
+            ChangedPath("/repo/project/branches/release/src/app.py", "M"),
+        ],
+    )
+    recorder = RecordingFileSynchronizer()
+    runner = BranchAwareDryRunRunner()
+
+    SyncService(runner, file_synchronizer=recorder).sync(config, "legacy", [entry], dry_run=False, push=False)
+
+    assert recorder.full_synced == [("legacy", 1100, "dev")]
+    assert recorder.applied == [("legacy", ["/repo/project/branches/release/src/app.py"])]
 
 
 def test_sync_uses_branch_override_regex_for_file_application(tmp_path):

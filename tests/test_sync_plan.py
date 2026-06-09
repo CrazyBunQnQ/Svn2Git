@@ -69,6 +69,56 @@ def test_same_svn_revision_is_split_by_git_branch():
     ]
 
 
+def test_full_sync_is_marked_when_branch_interval_is_reached(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    target = config.repositories["legacy"].expand_targets()[0]
+    object.__setattr__(target, "git_path", str(tmp_path))
+    entries = [
+        LogEntry(
+            revision=1000,
+            author="alice",
+            date=None,
+            message="Large gap",
+            changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+        )
+    ]
+
+    plan = build_sync_plan(config, "legacy", entries, dry_run=True, target_overrides={"legacy": target})
+
+    revision = plan.target_plans[0].revisions[0]
+    assert revision.full_sync is True
+    assert "full sync: yes" in plan.render()
+
+
+def test_full_sync_counter_is_independent_per_git_branch(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    target = config.repositories["legacy"].expand_targets()[0]
+    object.__setattr__(target, "git_path", str(tmp_path))
+    full_sync_dir = tmp_path / ".svn_full_sync_versions" / "legacy"
+    full_sync_dir.mkdir(parents=True)
+    (full_sync_dir / "dev").write_text("100", encoding="utf-8")
+    (full_sync_dir / "release").write_text("101", encoding="utf-8")
+    entries = [
+        LogEntry(
+            revision=1100,
+            author="alice",
+            date=None,
+            message="Two branches",
+            changed_paths=[
+                ChangedPath("/repo/project/branches/dev/src/app.py", "M"),
+                ChangedPath("/repo/project/branches/release/src/app.py", "M"),
+            ],
+        )
+    ]
+
+    plan = build_sync_plan(config, "legacy", entries, dry_run=True, target_overrides={"legacy": target})
+
+    assert [(revision.git_branch, revision.full_sync) for revision in plan.target_plans[0].revisions] == [
+        ("dev", True),
+        ("release", False),
+    ]
+
+
 def test_module_checkpoint_does_not_skip_other_modules(tmp_path):
     config = load_config(FIXTURES / "application_modules.yml")
     entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))

@@ -140,3 +140,41 @@ def test_file_synchronizer_rejects_target_path_escape(tmp_path):
 
     with pytest.raises(ValueError, match="target path escapes git root"):
         FileSynchronizer().apply_entry(target, entry)
+
+
+def test_full_sync_reconciles_complete_tree_and_writes_branch_baseline(tmp_path):
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('fresh')\n", encoding="utf-8")
+    (svn_root / ".svn").mkdir()
+    stale = git_root / "modules" / "billing" / "stale.py"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale\n", encoding="utf-8")
+    git_control = git_root / ".git" / "config"
+    git_control.parent.mkdir(parents=True)
+    git_control.write_text("[core]\n", encoding="utf-8")
+    entry = LogEntry(
+        revision=1000,
+        author="alice",
+        date=None,
+        message="Full sync",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    target = SyncTarget(
+        name="suite:billing",
+        svn_url="https://svn.example.com/repos/main",
+        svn_project_path=str(svn_root),
+        git_path=str(git_root),
+        target_path="modules/billing",
+    )
+
+    FileSynchronizer().apply_full_sync(target, entry, "dev")
+
+    assert (git_root / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('fresh')\n"
+    assert not stale.exists()
+    assert not (git_root / "modules" / "billing" / ".svn").exists()
+    assert git_control.exists()
+    assert (git_root / ".svn_versions" / "suite_billing").read_text(encoding="utf-8") == "1000"
+    assert (git_root / ".svn_full_sync_versions" / "suite_billing" / "dev").read_text(encoding="utf-8") == "1000"

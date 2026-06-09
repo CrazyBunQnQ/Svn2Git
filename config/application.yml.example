@@ -30,6 +30,8 @@ svn_git_mapping:
     # 从 SVN changed-path 中提取分支名的正则，必须包含一个捕获组；不配置时默认同步到 master。
     # 历史配置名是 dir_regx，程序也兼容更正后的 dir_regex。
     dir_regx: a_regular_expression_to_match_your_project_branch
+    # 每个 Git 分支距离上次全量同步的 SVN revision 差值达到该数值时，触发一次全量对账；默认 1000，设为 0 可关闭。
+    full_sync_interval: 1000
 
   example:
     # 示例：普通 SVN 分支目录同步到一个 Git 仓库。
@@ -54,6 +56,8 @@ svn_git_mapping:
         svn_project_path: F:\SvnRepo\Billing
         # 模块文件写入完整 Git 仓库中的相对路径；不会创建 Git submodule。
         target_path: modules/billing
+        # 模块可以覆盖父仓库的全量同步间隔；不配置时继承父仓库。
+        full_sync_interval: 500
         # 分支级来源覆盖。key 是原始 SVN 分支名或 dir_regx 捕获出的分支名。
         branch_overrides:
           dev:

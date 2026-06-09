@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from svn2git.config import ConfigError, load_config
+from svn2git.config import ConfigError, load_config, parse_config
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,6 +23,7 @@ def test_loads_repository_modules_with_repo_remote():
     assert targets[0].git_remote_url == "ssh://git.example.com/suite.git"
     assert targets[0].branch_overrides["dev"].svn_url == "https://svn.example.com/repos/billing-dev"
     assert targets[0].branch_overrides["dev"].svn_project_path == "Q:\\svn2git-fixture\\svn\\BillingDev"
+    assert targets[0].full_sync_interval == 1000
 
 
 def test_repository_branch_override_keeps_213_branch_as_string():
@@ -62,3 +63,52 @@ def test_legacy_repository_without_submodules():
     assert len(targets) == 1
     assert targets[0].name == "legacy"
     assert targets[0].git_path == "Q:\\svn2git-fixture\\git\\Legacy"
+    assert targets[0].full_sync_interval == 1000
+
+
+def test_full_sync_interval_can_be_configured_per_repository_and_module():
+    config = parse_config(
+        {
+            "svn_git_mapping": {
+                "suite": {
+                    "svn_url": "https://svn.example.com/repos/main",
+                    "svn_project_path": "Q:\\svn2git-fixture\\svn\\Suite",
+                    "git_project_path": "Q:\\svn2git-fixture\\git\\Suite",
+                    "full_sync_interval": 500,
+                    "modules": {
+                        "billing": {
+                            "svn_project_path": "Q:\\svn2git-fixture\\svn\\Billing",
+                            "target_path": "modules/billing",
+                            "full_sync_interval": 100,
+                        },
+                        "reporting": {
+                            "svn_project_path": "Q:\\svn2git-fixture\\svn\\Reporting",
+                            "target_path": "modules/reporting",
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    billing, reporting = config.repositories["suite"].expand_targets()
+
+    assert config.repositories["suite"].full_sync_interval == 500
+    assert billing.full_sync_interval == 100
+    assert reporting.full_sync_interval == 500
+
+
+def test_full_sync_interval_rejects_negative_values():
+    with pytest.raises(ConfigError, match="full_sync_interval"):
+        parse_config(
+            {
+                "svn_git_mapping": {
+                    "legacy": {
+                        "svn_url": "https://svn.example.com/repos/main",
+                        "svn_project_path": "Q:\\svn2git-fixture\\svn\\Legacy",
+                        "git_project_path": "Q:\\svn2git-fixture\\git\\Legacy",
+                        "full_sync_interval": -1,
+                    }
+                }
+            }
+        )

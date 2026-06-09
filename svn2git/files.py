@@ -25,6 +25,16 @@ class FileSynchronizer:
                 self._delete(destination)
         self._version_file(git_root, target).write_text(str(entry.revision), encoding="utf-8")
 
+    def apply_full_sync(self, target: SyncTarget, entry: LogEntry, git_branch: str) -> None:
+        git_root = Path(target.git_path)
+        git_root.mkdir(parents=True, exist_ok=True)
+        source_root = Path(target.svn_project_path)
+        destination_root = self._safe_destination(git_root, self._destination_root(target))
+        destination_root.mkdir(parents=True, exist_ok=True)
+        self._reconcile_tree(source_root, destination_root)
+        self._version_file(git_root, target).write_text(str(entry.revision), encoding="utf-8")
+        self._full_sync_version_file(git_root, target, git_branch).write_text(str(entry.revision), encoding="utf-8")
+
     def _relative_path(self, change: ChangedPath, branch_regex: str | None, dir_suffix: str | None = None) -> Path | None:
         path = change.path.strip("/")
         if branch_regex:
@@ -80,9 +90,40 @@ class FileSynchronizer:
             raise ValueError("target path escapes git root")
         return destination
 
+    def _destination_root(self, target: SyncTarget) -> Path:
+        if not target.target_path or target.target_path == ".":
+            return Path()
+        return Path(target.target_path)
+
+    def _reconcile_tree(self, source_root: Path, destination_root: Path) -> None:
+        source_entries = self._sync_entry_names(source_root)
+        destination_entries = self._sync_entry_names(destination_root)
+        for name in destination_entries - source_entries:
+            self._delete(destination_root / name)
+        for name in source_entries:
+            source = source_root / name
+            destination = destination_root / name
+            if source.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                self._reconcile_tree(source, destination)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+
+    def _sync_entry_names(self, root: Path) -> set[str]:
+        ignored = {".svn", ".git", ".metadata", ".svn_version", ".svn_versions", ".svn_full_sync_versions"}
+        if not root.exists():
+            return set()
+        return {path.name for path in root.iterdir() if path.name not in ignored}
+
     def _version_file(self, git_root: Path, target: SyncTarget) -> Path:
         if not target.parent_name and not target.target_path:
             return git_root / ".svn_version"
         version_dir = git_root / ".svn_versions"
         version_dir.mkdir(parents=True, exist_ok=True)
         return version_dir / target.name.replace(":", "_").replace("/", "_").replace("\\", "_")
+
+    def _full_sync_version_file(self, git_root: Path, target: SyncTarget, git_branch: str) -> Path:
+        version_dir = git_root / ".svn_full_sync_versions" / target.name.replace(":", "_").replace("/", "_").replace("\\", "_")
+        version_dir.mkdir(parents=True, exist_ok=True)
+        return version_dir / git_branch.replace(":", "_").replace("/", "_").replace("\\", "_")

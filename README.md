@@ -67,6 +67,7 @@ svn_git_mapping:
     svn_project_path: your_sync_svn_project_path
     git_project_path: your_sync_git_project_path
     dir_regx: a_regular_expression_to_match_your_project_branch
+    full_sync_interval: 1000
   example:
     svn_url: http://127.0.0.1:8443/repo/example
     svn_project_path: F:\SvnRepo\SMPlatform
@@ -75,6 +76,8 @@ svn_git_mapping:
 ```
 
 由于项目结构复杂，不同的项目通过 `dir_regx` 正则表达式匹配分支...我太难了...
+
+`full_sync_interval` 用来兜底修正增量同步可能产生的遗漏。程序会按 Git 分支独立记录上次全量同步的 SVN revision；当当前 revision 与该分支上次全量同步 revision 的差值大于等于配置值时，会先把本地 SVN 工作副本更新到当前 revision，再把该分支对应目录完整对账到 Git 分支并提交。全量同步成功后，只重置当前 Git 分支的计数。该配置默认是 `1000`，设为 `0` 可关闭全量兜底。
 
 #### SVN 模块映射
 
@@ -92,6 +95,7 @@ svn_git_mapping:
       billing:
         svn_project_path: F:\SvnRepo\Billing
         target_path: modules/billing
+        full_sync_interval: 500
         branch_overrides:
           dev:
             svn_url: https://svn.example.com/repos/billing-dev
@@ -103,6 +107,8 @@ svn_git_mapping:
 ```
 
 同步时会在顶层 Git 仓库中切换目标分支，分别更新参与本次 SVN revision 的模块工作副本，把文件复制到各自 `target_path` 下，然后按 Git 项目、Git 分支、SVN revision 提交一次。
+
+模块未配置 `full_sync_interval` 时继承父仓库；单独配置后只影响该模块。全量同步状态写在 Git 工作树的 `.svn_full_sync_versions/<target>/<git_branch>` 下，普通增量 checkpoint 仍使用 `.svn_version` 或 `.svn_versions/<target>`。
 
 如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。真实同步默认会在提交后执行 `git push --all`；只想验证本地 Git 提交时加 `--no-push`。
 

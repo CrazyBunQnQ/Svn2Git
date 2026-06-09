@@ -20,6 +20,7 @@ class PlannedRevision:
     dir_regex: str | None
     dir_suffix: str | None
     entry: LogEntry
+    full_sync: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ class SyncPlan:
             for revision in target_plan.revisions:
                 lines.append(f"  SVN version {revision.revision}: {revision.message}")
                 lines.append(f"  branches: {', '.join(revision.branches)}")
+                if revision.full_sync:
+                    lines.append("  full sync: yes")
                 if revision.svn_project_path != target.svn_project_path or revision.svn_url != target.svn_url:
                     lines.append(f"  svn source: {revision.svn_url} {revision.svn_project_path}")
         return "\n".join(lines)
@@ -82,18 +85,20 @@ def _plan_target(target: SyncTarget, entries: list[LogEntry]) -> TargetPlan:
             source_branches = (branch,)
             source = _source_for_branches(target, source_branches)
             branch_entry = LogEntry(entry.revision, entry.author, entry.date, entry.message, changes)
+            git_branch = _git_branch_for_sources(target, source_branches)
             revisions.append(
                 PlannedRevision(
                     revision=entry.revision,
                     author=entry.author,
                     message=entry.message,
                     branches=_branch_names_for_sources(target, source_branches),
-                    git_branch=_git_branch_for_sources(target, source_branches),
+                    git_branch=git_branch,
                     svn_url=source[0],
                     svn_project_path=source[1],
                     dir_regex=source[2],
                     dir_suffix=source[3],
                     entry=branch_entry,
+                    full_sync=_should_full_sync(target, git_branch, entry.revision),
                 )
             )
     return TargetPlan(target=target, revisions=tuple(revisions))
@@ -123,6 +128,26 @@ def _read_target_revision(target: SyncTarget) -> int:
 
 def _revision_key(target: SyncTarget) -> str:
     return target.name.replace(":", "_").replace("/", "_").replace("\\", "_")
+
+
+def _read_full_sync_revision(target: SyncTarget, git_branch: str) -> int:
+    version_file = Path(target.git_path) / ".svn_full_sync_versions" / _revision_key(target) / _branch_key(git_branch)
+    if not version_file.exists():
+        return -1
+    try:
+        return int(version_file.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return -1
+
+
+def _branch_key(git_branch: str) -> str:
+    return git_branch.replace(":", "_").replace("/", "_").replace("\\", "_")
+
+
+def _should_full_sync(target: SyncTarget, git_branch: str, revision: int) -> bool:
+    if target.full_sync_interval <= 0:
+        return False
+    return revision - _read_full_sync_revision(target, git_branch) >= target.full_sync_interval
 
 
 def _is_relevant_change(target: SyncTarget, change: ChangedPath) -> bool:

@@ -60,7 +60,10 @@ class SyncService:
         )
         self.runner.require(["svn", "update", "-r", str(revision.revision), source_target.svn_project_path])
         if not dry_run:
-            self.file_synchronizer.apply_entry(source_target, revision.entry)
+            if revision.full_sync:
+                self.file_synchronizer.apply_full_sync(source_target, revision.entry, revision.git_branch)
+            else:
+                self.file_synchronizer.apply_entry(source_target, revision.entry)
 
     def _validate_module_targets(self, plan: SyncPlan) -> None:
         seen_roots = set()
