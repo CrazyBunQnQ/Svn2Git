@@ -69,3 +69,40 @@ def test_load_entries_passes_configured_svn_credentials():
     assert all("svn_user" in args for args in seen_args)
     assert all("--password" in args for args in seen_args)
     assert all("svn_password" in args for args in seen_args)
+
+
+def test_cli_sync_routes_through_job_runner(monkeypatch, capsys):
+    created_jobs = []
+
+    class FakeJobRunner:
+        def __init__(self, executor):
+            self.executor = executor
+
+        def enqueue(self, job):
+            created_jobs.append(job)
+            return job
+
+        def run_pending(self):
+            job = created_jobs[-1]
+            job.result = "job plan"
+            job.status = "succeeded"
+            return [job]
+
+    monkeypatch.setattr("svn2git.cli.JobRunner", FakeJobRunner)
+
+    exit_code = main([
+        "sync",
+        "--config",
+        str(FIXTURES / "application_modules.yml"),
+        "--repo",
+        "suite",
+        "--log-xml",
+        str(FIXTURES / "svn_log.xml"),
+        "--dry-run",
+    ])
+
+    assert exit_code == 0
+    assert created_jobs[0].repo_name == "suite"
+    assert created_jobs[0].trigger_source == "cli"
+    assert created_jobs[0].dry_run is True
+    assert "job plan" in capsys.readouterr().out

@@ -5,10 +5,9 @@ import sys
 from pathlib import Path
 
 from svn2git.commands import CommandRunner, DryRunRunner
-from svn2git.config import AppConfig, ConfigError, RepositoryConfig, load_config
+from svn2git.config import ConfigError, load_config
+from svn2git.jobs import JobRunner, SyncJob, load_entries, selected_repo_names
 from svn2git.service import SyncService
-from svn2git.svn_client import SvnClient
-from svn2git.svn_log import parse_svn_log_xml
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,17 +34,22 @@ def main(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             runner = DryRunRunner() if args.dry_run else CommandRunner()
             service = SyncService(runner)
-            if args.repo == "all":
-                for repo_name in config.repositories:
-                    entries = _load_entries(config, repo_name, runner, args.log_xml, args.dry_run)
-                    plan = service.sync(config, repo_name, entries, dry_run=args.dry_run, push=not args.no_push)
-                    print(plan.render())
-                if isinstance(runner, DryRunRunner):
-                    _print_commands(runner)
-                return 0
-            entries = _load_entries(config, args.repo, runner, args.log_xml, args.dry_run)
-            plan = service.sync(config, args.repo, entries, dry_run=args.dry_run, push=not args.no_push)
-            print(plan.render())
+            job_runner = JobRunner(
+                lambda job: service.sync(
+                    config,
+                    job.repo_name,
+                    load_entries(config, job.repo_name, runner, args.log_xml, job.dry_run),
+                    dry_run=job.dry_run,
+                    push=not args.no_push,
+                ).render()
+            )
+            for repo_name in selected_repo_names(config, args.repo):
+                job_runner.enqueue(SyncJob(repo_name=repo_name, trigger_source="cli", dry_run=args.dry_run))
+            for job in job_runner.run_pending():
+                if job.result:
+                    print(job.result)
+                if job.status == "failed":
+                    raise ValueError(job.error or "sync failed")
             if isinstance(runner, DryRunRunner):
                 _print_commands(runner)
             return 0
@@ -62,25 +66,7 @@ def _print_commands(runner: DryRunRunner) -> None:
         print(f"- {' '.join(command.args)}{location}")
 
 
-def _load_entries(config, repo_name: str, runner, log_xml: str | None, dry_run: bool):
-    if log_xml:
-        return parse_svn_log_xml(Path(log_xml).read_text(encoding="utf-8"))
-    if dry_run:
-        raise ValueError("--log-xml is required for dry-run sync")
-    repository = config.repositories[repo_name]
-    client = SvnClient(runner)
-    entries = []
-    for svn_url in _svn_log_urls(repository):
-        entries.extend(parse_svn_log_xml(client.log_xml(svn_url, config.svn_username, config.svn_password)))
-    return entries
-
-
-def _svn_log_urls(repository: RepositoryConfig) -> list[str]:
-    urls = []
-    for target in repository.expand_targets():
-        urls.append(target.svn_url)
-        urls.extend(override.svn_url for override in target.branch_overrides.values() if override.svn_url)
-    return list(dict.fromkeys(urls))
+_load_entries = load_entries
 
 
 if __name__ == "__main__":
