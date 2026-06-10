@@ -23,10 +23,14 @@ svn_git_mapping:
   platform:
     # SVN 仓库或分支根 URL，用于 svn log 读取提交记录；模块未配置 svn_url 时会继承它。
     svn_url: your_svn_url
-    # 本地 SVN 工作副本路径；同步时会在这里执行 svn update。
+    # 服务自有本地 SVN 工作副本路径；同步时会在这里执行 svn update，开发者不要手动修改。
     svn_project_path: your_sync_svn_project_path
-    # 本地 Git 仓库路径；同步时会在这里 checkout 分支、复制文件、提交并推送。
-    git_project_path: your_sync_git_project_path
+    # 目标 Git 仓库路径或 URL；开发者从这里 clone/fetch。可以是本地 bare repository。
+    git_repository_path: your_target_git_repository_path
+    # 服务自有 Git 同步工作树；同步时会在这里 checkout 分支、复制文件、提交并推送。
+    git_worktree_path: your_service_git_worktree_path
+    # 服务自有状态目录；后续用于保存 checkpoint、锁和 job 状态。
+    state_path: your_service_state_path
     # 从 SVN changed-path 中提取分支名的正则，必须包含一个捕获组；不配置时默认同步到 master。
     # 历史配置名是 dir_regx，程序也兼容更正后的 dir_regex。
     dir_regx: a_regular_expression_to_match_your_project_branch
@@ -37,7 +41,9 @@ svn_git_mapping:
     # 示例：普通 SVN 分支目录同步到一个 Git 仓库。
     svn_url: http://127.0.0.1:8443/repo/example
     svn_project_path: F:\SvnRepo\SMPlatform
-    git_project_path: F:\GitRepo\Platform
+    git_repository_path: F:\GitRepo\Platform.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Platform
+    state_path: F:\Svn2GitService\state\Platform
     # 这里会把 /branches/dev/... 识别为 Git 分支 dev。
     dir_regx: .*/branches/([^/]+).*
 
@@ -45,14 +51,16 @@ svn_git_mapping:
     # 示例：一个完整 Git 仓库下合并多个 SVN 模块。
     svn_url: https://svn.example.com/repos/main
     svn_project_path: F:\SvnRepo\Suite
-    git_project_path: F:\GitRepo\Suite
+    git_repository_path: F:\GitRepo\Suite.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Suite
+    state_path: F:\Svn2GitService\state\Suite
     # 顶层 Git 远端地址属于完整 Git 项目，不属于某个模块。
     git_remote_url: ssh://git.example.com/suite.git
     # 模块未配置 dir_regx 时会继承父仓库的分支识别规则。
     dir_regx: .*/branches/([^/]+).*
     modules:
       billing:
-        # 模块自己的本地 SVN 工作副本路径。
+        # 模块自己的服务自有本地 SVN 工作副本路径。
         svn_project_path: F:\SvnRepo\Billing
         # 模块文件写入完整 Git 仓库中的相对路径；不会创建 Git submodule。
         target_path: modules/billing
@@ -76,7 +84,9 @@ svn_git_mapping:
     # Singularity 示例：Common 和 framework 是两个 SVN 模块，合并成一个完整 Git 项目。
     svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity
     svn_project_path: F:\SvnTest\Singularity
-    git_project_path: F:\Svn2GitTest\Singularity
+    git_repository_path: F:\GitRepo\Singularity.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Singularity
+    state_path: F:\Svn2GitService\state\Singularity
     modules:
       common:
         svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity/Common

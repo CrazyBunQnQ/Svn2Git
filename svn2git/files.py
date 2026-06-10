@@ -23,7 +23,6 @@ class FileSynchronizer:
                 self._copy(source, destination)
             elif change.action == "D":
                 self._delete(destination)
-        self._version_file(git_root, target).write_text(str(entry.revision), encoding="utf-8")
 
     def apply_full_sync(self, target: SyncTarget, entry: LogEntry, git_branch: str) -> None:
         git_root = Path(target.git_path)
@@ -32,8 +31,6 @@ class FileSynchronizer:
         destination_root = self._safe_destination(git_root, self._destination_root(target))
         destination_root.mkdir(parents=True, exist_ok=True)
         self._reconcile_tree(source_root, destination_root)
-        self._version_file(git_root, target).write_text(str(entry.revision), encoding="utf-8")
-        self._full_sync_version_file(git_root, target, git_branch).write_text(str(entry.revision), encoding="utf-8")
 
     def _relative_path(self, change: ChangedPath, branch_regex: str | None, dir_suffix: str | None = None) -> Path | None:
         path = change.path.strip("/")

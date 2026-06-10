@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from pathlib import Path
 
 from svn2git.config import AppConfig, SyncTarget
+from svn2git.state import SyncState
 from svn2git.svn_log import ChangedPath, LogEntry
 
 
@@ -104,44 +104,12 @@ def _plan_target(target: SyncTarget, entries: list[LogEntry]) -> TargetPlan:
     return TargetPlan(target=target, revisions=tuple(revisions))
 
 
-def _read_current_revision(git_path: str) -> int:
-    version_file = Path(git_path) / ".svn_version"
-    if not version_file.exists():
-        return -1
-    try:
-        return int(version_file.read_text(encoding="utf-8").strip())
-    except ValueError:
-        return -1
-
-
 def _read_target_revision(target: SyncTarget) -> int:
-    if not target.parent_name and not target.target_path:
-        return _read_current_revision(target.git_path)
-    version_file = Path(target.git_path) / ".svn_versions" / _revision_key(target)
-    if not version_file.exists():
-        return -1
-    try:
-        return int(version_file.read_text(encoding="utf-8").strip())
-    except ValueError:
-        return -1
-
-
-def _revision_key(target: SyncTarget) -> str:
-    return target.name.replace(":", "_").replace("/", "_").replace("\\", "_")
+    return SyncState.for_target(target).read_checkpoint(target)
 
 
 def _read_full_sync_revision(target: SyncTarget, git_branch: str) -> int:
-    version_file = Path(target.git_path) / ".svn_full_sync_versions" / _revision_key(target) / _branch_key(git_branch)
-    if not version_file.exists():
-        return -1
-    try:
-        return int(version_file.read_text(encoding="utf-8").strip())
-    except ValueError:
-        return -1
-
-
-def _branch_key(git_branch: str) -> str:
-    return git_branch.replace(":", "_").replace("/", "_").replace("\\", "_")
+    return SyncState.for_target(target).read_full_sync_revision(target, git_branch)
 
 
 def _should_full_sync(target: SyncTarget, git_branch: str, revision: int) -> bool:

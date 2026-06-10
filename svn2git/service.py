@@ -7,6 +7,7 @@ from svn2git.commands import CommandRunner, DryRunRunner
 from svn2git.config import AppConfig, SyncTarget
 from svn2git.files import FileSynchronizer
 from svn2git.planner import SyncPlan, build_sync_plan
+from svn2git.state import SyncState
 from svn2git.svn_log import LogEntry
 
 
@@ -44,6 +45,12 @@ class SyncService:
             self.runner.require(["git", "commit", "-m", message], cwd=target.git_path)
             if push:
                 self.runner.require(["git", "push", "--all"], cwd=target.git_path)
+            if not dry_run and push:
+                for item_target, revision in items:
+                    state = SyncState.for_target(item_target)
+                    state.write_checkpoint(item_target, revision.revision)
+                    if revision.full_sync:
+                        state.write_full_sync_revision(item_target, revision.git_branch, revision.revision)
 
     def _sync_target(self, target: SyncTarget, revisions, dry_run: bool) -> None:
         for revision in revisions:

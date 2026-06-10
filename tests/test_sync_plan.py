@@ -44,6 +44,22 @@ def test_sync_plan_skips_revisions_at_or_before_svn_version(tmp_path):
     assert [revision.revision for revision in plan.target_plans[0].revisions] == [42]
 
 
+def test_sync_plan_reads_checkpoint_from_external_state_path(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    entries = parse_svn_log_xml((FIXTURES / "svn_log.xml").read_text(encoding="utf-8"))
+    legacy = config.repositories["legacy"]
+    target = legacy.expand_targets()[0]
+    object.__setattr__(target, "git_path", str(tmp_path / "git"))
+    object.__setattr__(target, "state_path", str(tmp_path / "state"))
+    checkpoint_dir = tmp_path / "state" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "legacy").write_text("41", encoding="utf-8")
+
+    plan = build_sync_plan(config, "legacy", entries, dry_run=True, target_overrides={"legacy": target})
+
+    assert [revision.revision for revision in plan.target_plans[0].revisions] == [42]
+
+
 def test_same_svn_revision_is_split_by_git_branch():
     config = load_config(FIXTURES / "application_legacy.yml")
     entries = [
@@ -95,6 +111,36 @@ def test_full_sync_counter_is_independent_per_git_branch(tmp_path):
     target = config.repositories["legacy"].expand_targets()[0]
     object.__setattr__(target, "git_path", str(tmp_path))
     full_sync_dir = tmp_path / ".svn_full_sync_versions" / "legacy"
+    full_sync_dir.mkdir(parents=True)
+    (full_sync_dir / "dev").write_text("100", encoding="utf-8")
+    (full_sync_dir / "release").write_text("101", encoding="utf-8")
+    entries = [
+        LogEntry(
+            revision=1100,
+            author="alice",
+            date=None,
+            message="Two branches",
+            changed_paths=[
+                ChangedPath("/repo/project/branches/dev/src/app.py", "M"),
+                ChangedPath("/repo/project/branches/release/src/app.py", "M"),
+            ],
+        )
+    ]
+
+    plan = build_sync_plan(config, "legacy", entries, dry_run=True, target_overrides={"legacy": target})
+
+    assert [(revision.git_branch, revision.full_sync) for revision in plan.target_plans[0].revisions] == [
+        ("dev", True),
+        ("release", False),
+    ]
+
+
+def test_full_sync_counter_reads_external_state_per_git_branch(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    target = config.repositories["legacy"].expand_targets()[0]
+    object.__setattr__(target, "git_path", str(tmp_path / "git"))
+    object.__setattr__(target, "state_path", str(tmp_path / "state"))
+    full_sync_dir = tmp_path / "state" / "full-sync" / "legacy"
     full_sync_dir.mkdir(parents=True)
     (full_sync_dir / "dev").write_text("100", encoding="utf-8")
     (full_sync_dir / "release").write_text("101", encoding="utf-8")

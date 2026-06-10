@@ -66,6 +66,94 @@ def test_legacy_repository_without_submodules():
     assert targets[0].full_sync_interval == 1000
 
 
+def test_repository_service_paths_are_distinct_from_target_repository():
+    config = parse_config(
+        {
+            "svn_git_mapping": {
+                "service": {
+                    "svn_url": "https://svn.example.com/repos/main",
+                    "svn_project_path": "Q:\\svn2git-fixture\\svn\\Service",
+                    "git_repository_path": "Q:\\svn2git-fixture\\repos\\Service.git",
+                    "git_worktree_path": "Q:\\svn2git-fixture\\worktrees\\Service",
+                    "state_path": "Q:\\svn2git-fixture\\state\\Service",
+                    "dir_regx": ".*/branches/([^/]+).*",
+                }
+            }
+        }
+    )
+
+    service = config.repositories["service"]
+    targets = service.expand_targets()
+
+    assert service.git_repository_path == "Q:\\svn2git-fixture\\repos\\Service.git"
+    assert service.git_worktree_path == "Q:\\svn2git-fixture\\worktrees\\Service"
+    assert service.state_path == "Q:\\svn2git-fixture\\state\\Service"
+    assert service.git_project_path == "Q:\\svn2git-fixture\\worktrees\\Service"
+    assert targets[0].git_repository_path == "Q:\\svn2git-fixture\\repos\\Service.git"
+    assert targets[0].git_path == "Q:\\svn2git-fixture\\worktrees\\Service"
+    assert targets[0].state_path == "Q:\\svn2git-fixture\\state\\Service"
+
+
+def test_repository_service_paths_are_inherited_by_modules():
+    config = parse_config(
+        {
+            "svn_git_mapping": {
+                "suite": {
+                    "svn_url": "https://svn.example.com/repos/main",
+                    "svn_project_path": "Q:\\svn2git-fixture\\svn\\Suite",
+                    "git_repository_path": "Q:\\svn2git-fixture\\repos\\Suite.git",
+                    "git_worktree_path": "Q:\\svn2git-fixture\\worktrees\\Suite",
+                    "state_path": "Q:\\svn2git-fixture\\state\\Suite",
+                    "modules": {
+                        "billing": {
+                            "svn_project_path": "Q:\\svn2git-fixture\\svn\\Billing",
+                            "target_path": "modules/billing",
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    billing = config.repositories["suite"].expand_targets()[0]
+
+    assert billing.git_repository_path == "Q:\\svn2git-fixture\\repos\\Suite.git"
+    assert billing.git_path == "Q:\\svn2git-fixture\\worktrees\\Suite"
+    assert billing.state_path == "Q:\\svn2git-fixture\\state\\Suite"
+
+
+def test_rejects_target_repository_matching_sync_worktree():
+    with pytest.raises(ConfigError, match="git_repository_path.*git_worktree_path"):
+        parse_config(
+            {
+                "svn_git_mapping": {
+                    "service": {
+                        "svn_url": "https://svn.example.com/repos/main",
+                        "svn_project_path": "Q:\\svn2git-fixture\\svn\\Service",
+                        "git_repository_path": "Q:\\svn2git-fixture\\git\\Service",
+                        "git_worktree_path": "Q:\\svn2git-fixture\\git\\Service",
+                    }
+                }
+            }
+        )
+
+
+def test_rejects_target_repository_without_explicit_sync_worktree():
+    with pytest.raises(ConfigError, match="git_worktree_path"):
+        parse_config(
+            {
+                "svn_git_mapping": {
+                    "service": {
+                        "svn_url": "https://svn.example.com/repos/main",
+                        "svn_project_path": "Q:\\svn2git-fixture\\svn\\Service",
+                        "git_repository_path": "Q:\\svn2git-fixture\\repos\\Service.git",
+                        "git_project_path": "Q:\\svn2git-fixture\\git\\Service",
+                    }
+                }
+            }
+        )
+
+
 def test_full_sync_interval_can_be_configured_per_repository_and_module():
     config = parse_config(
         {

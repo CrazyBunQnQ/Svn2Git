@@ -214,7 +214,7 @@ def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
     )
     recorder = RecordingFileSynchronizer()
 
-    SyncService(DryRunRunner(), file_synchronizer=recorder).sync(config, "suite", [entry], dry_run=False)
+    SyncService(DryRunRunner(), file_synchronizer=recorder).sync(config, "suite", [entry], dry_run=False, push=False)
 
     assert ("suite:billing", ["/repo/project/branches/dev/billing/src/app.py"]) in recorder.applied
     assert ("suite:reporting", ["/repo/project/release/2.0/reporting/report.txt"]) in recorder.applied
@@ -271,6 +271,129 @@ def test_sync_uses_full_sync_only_for_branch_that_reaches_interval(tmp_path):
 
     assert recorder.full_synced == [("legacy", 1100, "dev")]
     assert recorder.applied == [("legacy", ["/repo/project/branches/release/src/app.py"])]
+
+
+def test_sync_writes_external_checkpoint_after_successful_git_update(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    state_root = tmp_path / "state"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('ok')\n", encoding="utf-8")
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(git_root))
+    object.__setattr__(config.repositories["legacy"], "state_path", str(state_root))
+    entry = LogEntry(
+        revision=200,
+        author="alice",
+        date=None,
+        message="External checkpoint",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+    )
+
+    SyncService(BranchAwareDryRunRunner()).sync(config, "legacy", [entry], dry_run=False)
+
+    assert (state_root / "checkpoints" / "legacy").read_text(encoding="utf-8") == "200"
+    assert not (git_root / ".svn_version").exists()
+
+
+def test_sync_leaves_external_checkpoint_unchanged_when_git_push_fails(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    state_root = tmp_path / "state"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('ok')\n", encoding="utf-8")
+    (state_root / "checkpoints").mkdir(parents=True)
+    (state_root / "checkpoints" / "legacy").write_text("199", encoding="utf-8")
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(git_root))
+    object.__setattr__(config.repositories["legacy"], "state_path", str(state_root))
+    entry = LogEntry(
+        revision=200,
+        author="alice",
+        date=None,
+        message="External checkpoint",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+    )
+
+    try:
+        SyncService(FailingRunner()).sync(config, "legacy", [entry], dry_run=False)
+    except RuntimeError as exc:
+        assert str(exc) == "push failed"
+    else:
+        raise AssertionError("sync should fail when git push fails")
+
+    assert (state_root / "checkpoints" / "legacy").read_text(encoding="utf-8") == "199"
+
+
+def test_sync_dry_run_does_not_advance_external_checkpoint(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    state_root = tmp_path / "state"
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(tmp_path / "git"))
+    object.__setattr__(config.repositories["legacy"], "state_path", str(state_root))
+    entry = LogEntry(
+        revision=200,
+        author="alice",
+        date=None,
+        message="Dry run",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+    )
+
+    SyncService(BranchAwareDryRunRunner()).sync(config, "legacy", [entry], dry_run=True)
+
+    assert not (state_root / "checkpoints" / "legacy").exists()
+
+
+def test_sync_no_push_does_not_advance_external_checkpoint(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    state_root = tmp_path / "state"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('ok')\n", encoding="utf-8")
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(git_root))
+    object.__setattr__(config.repositories["legacy"], "state_path", str(state_root))
+    entry = LogEntry(
+        revision=200,
+        author="alice",
+        date=None,
+        message="No push",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+    )
+
+    SyncService(BranchAwareDryRunRunner()).sync(config, "legacy", [entry], dry_run=False, push=False)
+
+    assert not (state_root / "checkpoints" / "legacy").exists()
+
+
+def test_sync_leaves_legacy_checkpoint_unchanged_when_git_push_fails(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    svn_root = tmp_path / "svn"
+    git_root = tmp_path / "git"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('ok')\n", encoding="utf-8")
+    git_root.mkdir()
+    (git_root / ".svn_version").write_text("199", encoding="utf-8")
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(git_root))
+    entry = LogEntry(
+        revision=200,
+        author="alice",
+        date=None,
+        message="Legacy checkpoint",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/src/app.py", "M")],
+    )
+
+    try:
+        SyncService(FailingRunner()).sync(config, "legacy", [entry], dry_run=False)
+    except RuntimeError as exc:
+        assert str(exc) == "push failed"
+    else:
+        raise AssertionError("sync should fail when git push fails")
+
+    assert (git_root / ".svn_version").read_text(encoding="utf-8") == "199"
 
 
 def test_sync_uses_branch_override_regex_for_file_application(tmp_path):

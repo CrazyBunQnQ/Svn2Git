@@ -7,7 +7,7 @@ from svn2git.svn_log import ChangedPath, LogEntry
 import pytest
 
 
-def test_file_synchronizer_copies_modified_files_and_writes_revision(tmp_path):
+def test_file_synchronizer_copies_modified_files(tmp_path):
     svn_root = tmp_path / "svn"
     git_root = tmp_path / "git"
     source = svn_root / "billing" / "src" / "app.py"
@@ -32,7 +32,6 @@ def test_file_synchronizer_copies_modified_files_and_writes_revision(tmp_path):
     FileSynchronizer().apply_entry(target, entry)
 
     assert (git_root / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('ok')\n"
-    assert (git_root / ".svn_version").read_text(encoding="utf-8") == "41"
 
 
 def test_file_synchronizer_deletes_removed_files(tmp_path):
@@ -60,7 +59,6 @@ def test_file_synchronizer_deletes_removed_files(tmp_path):
     FileSynchronizer().apply_entry(target, entry)
 
     assert not stale.exists()
-    assert (git_root / ".svn_version").read_text(encoding="utf-8") == "42"
 
 
 def test_file_synchronizer_strips_configured_dir_suffix(tmp_path):
@@ -118,7 +116,6 @@ def test_file_synchronizer_writes_module_files_under_target_path(tmp_path):
     FileSynchronizer().apply_entry(target, entry)
 
     assert (git_root / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('module')\n"
-    assert (git_root / ".svn_versions" / "suite_billing").read_text(encoding="utf-8") == "50"
 
 
 def test_file_synchronizer_rejects_target_path_escape(tmp_path):
@@ -176,5 +173,3 @@ def test_full_sync_reconciles_complete_tree_and_writes_branch_baseline(tmp_path)
     assert not stale.exists()
     assert not (git_root / "modules" / "billing" / ".svn").exists()
     assert git_control.exists()
-    assert (git_root / ".svn_versions" / "suite_billing").read_text(encoding="utf-8") == "1000"
-    assert (git_root / ".svn_full_sync_versions" / "suite_billing" / "dev").read_text(encoding="utf-8") == "1000"
