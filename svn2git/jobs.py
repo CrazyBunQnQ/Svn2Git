@@ -32,6 +32,7 @@ class JobRunner:
     def __init__(self, executor: Callable[[SyncJob], str]) -> None:
         self.executor = executor
         self.queued_jobs: list[SyncJob] = []
+        self.completed_jobs: dict[str, SyncJob] = {}
         self._active_locks: set[tuple[str, str]] = set()
         self._ids = count(1)
 
@@ -62,9 +63,16 @@ class JobRunner:
                 job.status = "failed"
             finally:
                 self.release_lock(*job.lock_key)
+            if job.id:
+                self.completed_jobs[job.id] = job
             completed.append(job)
         self.queued_jobs = remaining
         return completed
+
+    def get_job(self, job_id: str | None) -> SyncJob | None:
+        if job_id is None:
+            return None
+        return self.completed_jobs.get(job_id)
 
     def acquire_lock(self, repo_name: str, git_branch: str = "*") -> None:
         self._active_locks.add((repo_name, git_branch))

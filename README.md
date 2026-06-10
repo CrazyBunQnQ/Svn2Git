@@ -34,6 +34,14 @@ python -m svn2git sync --config config/application.yml --repo platform --log-xml
 
 真实同步不传 `--dry-run`，也不传 `--log-xml` 时，会通过本机 `svn` 命令读取远程 SVN XML 日志，再执行后续 `svn update` / `git add` / `git commit` / `git push` 命令。
 
+启动最小 HTTP 服务入口：
+
+```shell
+python -m svn2git serve --config config/application.yml --host 127.0.0.1 --port 8080
+```
+
+服务提供 `POST /sync/{repo}`、`POST /sync` 和 `GET /jobs/{repo}`，用于手动或外部定时任务触发同步并查询最近一次结果。当前实现使用 Python 标准库 HTTP server，不额外引入 Web 框架依赖。
+
 ### 配置
 
 [application.yml.example](config%2Fapplication.yml.example) 是示例配置；实际使用时复制为 `config/application.yml` 并按本地环境修改。`config/application.yml` 已被 Git 忽略，不应提交账号、路径等本地正式配置。

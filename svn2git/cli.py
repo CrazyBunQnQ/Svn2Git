@@ -7,6 +7,7 @@ from pathlib import Path
 from svn2git.commands import CommandRunner, DryRunRunner
 from svn2git.config import ConfigError, load_config
 from svn2git.jobs import JobRunner, SyncJob, load_entries, selected_repo_names
+from svn2git.server import SyncServiceApp, create_http_server
 from svn2git.service import SyncService
 
 
@@ -23,6 +24,13 @@ def main(argv: list[str] | None = None) -> int:
     sync_parser.add_argument("--log-xml")
     sync_parser.add_argument("--dry-run", action="store_true")
     sync_parser.add_argument("--no-push", action="store_true")
+
+    serve_parser = subparsers.add_parser("serve")
+    serve_parser.add_argument("--config", required=True)
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8080)
+    serve_parser.add_argument("--log-xml")
+    serve_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
     try:
@@ -52,6 +60,12 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(job.error or "sync failed")
             if isinstance(runner, DryRunRunner):
                 _print_commands(runner)
+            return 0
+        if args.command == "serve":
+            load_config(args.config)
+            app = SyncServiceApp(args.config, log_xml_path=args.log_xml, dry_run=args.dry_run)
+            server = create_http_server(app, args.host, args.port)
+            server.serve_forever()
             return 0
     except (ConfigError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

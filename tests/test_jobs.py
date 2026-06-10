@@ -72,3 +72,19 @@ def test_job_runner_does_not_run_job_when_lock_is_active():
     assert results == []
     assert job.status == "queued"
     assert runner.queued_jobs == [job]
+
+
+def test_job_runner_stores_completed_jobs_by_id():
+    runner = JobRunner(lambda job: "rendered plan")
+    job = runner.enqueue(SyncJob(repo_name="suite", trigger_source="server"))
+
+    runner.run_pending()
+
+    assert runner.get_job(job.id) is job
+    assert runner.get_job(job.id).result == "rendered plan"
+
+
+def test_job_runner_returns_none_for_unknown_job_id():
+    runner = JobRunner(lambda job: "ok")
+
+    assert runner.get_job("missing") is None
