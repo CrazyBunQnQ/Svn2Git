@@ -37,6 +37,7 @@ class SyncService:
             if target.git_path not in configured_repos:
                 configured_repos.add(target.git_path)
             self.git_repository.prepare(target, git_branch)
+            self._validate_batch_destinations(items)
             for item_target, revision in items:
                 self._sync_target_revision(item_target, revision, dry_run)
             message = f"SVN version {first_revision.revision}"
@@ -66,9 +67,24 @@ class SyncService:
         self.runner.require(["svn", "update", "-r", str(revision.revision), source_target.svn_project_path])
         if not dry_run:
             if revision.full_sync:
-                self.file_synchronizer.apply_full_sync(source_target, revision.entry, revision.git_branch)
+                self.file_synchronizer.apply_full_sync(source_target, revision.entry, revision.git_branch, target.git_path)
             else:
-                self.file_synchronizer.apply_entry(source_target, revision.entry)
+                self.file_synchronizer.apply_entry(source_target, revision.entry, target.git_path)
+
+    def _validate_batch_destinations(self, items) -> None:
+        destinations = {}
+        for target, revision in items:
+            source_target = replace(
+                target,
+                svn_url=revision.svn_url,
+                svn_project_path=revision.svn_project_path,
+                dir_regex=revision.dir_regex,
+                dir_suffix=revision.dir_suffix,
+            )
+            for destination in self.file_synchronizer.destination_paths(source_target, revision.entry):
+                owner = destinations.setdefault(destination, target.name)
+                if owner != target.name:
+                    raise ValueError(f"module destination collision: {destination}")
 
     def _validate_module_targets(self, plan: SyncPlan) -> None:
         seen_roots = set()

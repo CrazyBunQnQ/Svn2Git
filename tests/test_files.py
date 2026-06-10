@@ -118,6 +118,36 @@ def test_file_synchronizer_writes_module_files_under_target_path(tmp_path):
     assert (git_root / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('module')\n"
 
 
+def test_file_synchronizer_writes_incremental_files_to_explicit_worktree_root(tmp_path):
+    svn_root = tmp_path / "svn"
+    legacy_git_root = tmp_path / "legacy-git"
+    sync_worktree = tmp_path / "service-worktree"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('worktree')\n", encoding="utf-8")
+
+    entry = LogEntry(
+        revision=52,
+        author="alice",
+        date=None,
+        message="Copy to service worktree",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    target = SyncTarget(
+        name="suite:billing",
+        svn_url="https://svn.example.com/repos/main",
+        svn_project_path=str(svn_root),
+        git_path=str(legacy_git_root),
+        dir_regex=r".*/branches/([^/]+).*",
+        target_path="modules/billing",
+    )
+
+    FileSynchronizer().apply_entry(target, entry, sync_worktree)
+
+    assert (sync_worktree / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('worktree')\n"
+    assert not legacy_git_root.exists()
+
+
 def test_file_synchronizer_rejects_target_path_escape(tmp_path):
     entry = LogEntry(
         revision=51,
@@ -173,3 +203,35 @@ def test_full_sync_reconciles_complete_tree_and_writes_branch_baseline(tmp_path)
     assert not stale.exists()
     assert not (git_root / "modules" / "billing" / ".svn").exists()
     assert git_control.exists()
+
+
+def test_full_sync_reconciles_into_explicit_worktree_root(tmp_path):
+    svn_root = tmp_path / "svn"
+    legacy_git_root = tmp_path / "legacy-git"
+    sync_worktree = tmp_path / "service-worktree"
+    source = svn_root / "src" / "app.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("print('fresh')\n", encoding="utf-8")
+    stale = sync_worktree / "modules" / "billing" / "stale.py"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale\n", encoding="utf-8")
+    entry = LogEntry(
+        revision=1001,
+        author="alice",
+        date=None,
+        message="Full sync worktree",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    target = SyncTarget(
+        name="suite:billing",
+        svn_url="https://svn.example.com/repos/main",
+        svn_project_path=str(svn_root),
+        git_path=str(legacy_git_root),
+        target_path="modules/billing",
+    )
+
+    FileSynchronizer().apply_full_sync(target, entry, "dev", sync_worktree)
+
+    assert (sync_worktree / "modules" / "billing" / "src" / "app.py").read_text(encoding="utf-8") == "print('fresh')\n"
+    assert not stale.exists()
+    assert not legacy_git_root.exists()

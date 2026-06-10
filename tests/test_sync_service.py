@@ -3,6 +3,7 @@ from pathlib import Path
 from svn2git.commands import CommandResult, DryRunRunner, RecordedCommand
 from svn2git.config import load_config
 from svn2git.config import ModuleConfig
+from svn2git.files import FileSynchronizer
 from svn2git.service import SyncService
 from svn2git.svn_log import ChangedPath, LogEntry, parse_svn_log_xml
 
@@ -49,12 +50,16 @@ class RecordingFileSynchronizer:
     def __init__(self):
         self.applied = []
         self.full_synced = []
+        self.delegate = FileSynchronizer()
 
-    def apply_entry(self, target, entry):
-        self.applied.append((target.name, [change.path for change in entry.changed_paths]))
+    def apply_entry(self, target, entry, worktree_root=None):
+        self.applied.append((target.name, [change.path for change in entry.changed_paths], target.svn_project_path, str(worktree_root)))
 
-    def apply_full_sync(self, target, entry, git_branch):
-        self.full_synced.append((target.name, entry.revision, git_branch))
+    def apply_full_sync(self, target, entry, git_branch, worktree_root=None):
+        self.full_synced.append((target.name, entry.revision, git_branch, target.svn_project_path, str(worktree_root)))
+
+    def destination_paths(self, target, entry):
+        return self.delegate.destination_paths(target, entry)
 
 
 class BranchAwareDryRunRunner(DryRunRunner):
@@ -216,8 +221,18 @@ def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
 
     SyncService(DryRunRunner(), file_synchronizer=recorder).sync(config, "suite", [entry], dry_run=False, push=False)
 
-    assert ("suite:billing", ["/repo/project/branches/dev/billing/src/app.py"]) in recorder.applied
-    assert ("suite:reporting", ["/repo/project/release/2.0/reporting/report.txt"]) in recorder.applied
+    assert (
+        "suite:billing",
+        ["/repo/project/branches/dev/billing/src/app.py"],
+        "Q:\\svn2git-fixture\\svn\\BillingDev",
+        "Q:\\svn2git-fixture\\git\\Suite",
+    ) in recorder.applied
+    assert (
+        "suite:reporting",
+        ["/repo/project/release/2.0/reporting/report.txt"],
+        "Q:\\svn2git-fixture\\svn\\Reporting",
+        "Q:\\svn2git-fixture\\git\\Suite",
+    ) in recorder.applied
 
 
 def test_same_svn_revision_syncs_each_branch_with_only_its_paths():
@@ -241,7 +256,7 @@ def test_same_svn_revision_syncs_each_branch_with_only_its_paths():
     assert "git checkout -B dev" in command_text
     assert "git checkout -B release" in command_text
     assert command_text.count("git commit -m SVN version 100: Patch two branches") == 2
-    assert recorder.applied == [
+    assert [item[:2] for item in recorder.applied] == [
         ("legacy", ["/repo/project/branches/dev/src/app.py"]),
         ("legacy", ["/repo/project/branches/release/src/app.py"]),
     ]
@@ -269,8 +284,8 @@ def test_sync_uses_full_sync_only_for_branch_that_reaches_interval(tmp_path):
 
     SyncService(runner, file_synchronizer=recorder).sync(config, "legacy", [entry], dry_run=False, push=False)
 
-    assert recorder.full_synced == [("legacy", 1100, "dev")]
-    assert recorder.applied == [("legacy", ["/repo/project/branches/release/src/app.py"])]
+    assert [item[:3] for item in recorder.full_synced] == [("legacy", 1100, "dev")]
+    assert [item[:2] for item in recorder.applied] == [("legacy", ["/repo/project/branches/release/src/app.py"])]
 
 
 def test_sync_writes_external_checkpoint_after_successful_git_update(tmp_path):
@@ -415,7 +430,32 @@ def test_sync_uses_branch_override_regex_for_file_application(tmp_path):
     assert "git checkout 2.13" in command_text
     assert "svn update -r 213 F:\\SvnTest\\SingularityCommon-2.13" in command_text
     assert "svn update -r 214 F:\\SvnTest\\SingularityFramework-2.13" in command_text
-    assert recorder.applied == [
+    assert [item[:2] for item in recorder.applied] == [
         ("singularity:common", ["/repo/codes/SafeMg/Singularity/Common/2.13/common/src/Fix.java"]),
         ("singularity:framework", ["/repo/codes/SafeMg/SMPlatform/branches/platform_2.13/platform-resource/src/Fix.java"]),
     ]
+
+
+def test_sync_rejects_same_batch_module_destination_collision(tmp_path):
+    config = load_config(FIXTURES / "application_modules.yml")
+    object.__setattr__(config.repositories["suite"], "git_project_path", str(tmp_path / "worktree"))
+    object.__setattr__(config.repositories["suite"].modules["billing"], "target_path", ".")
+    object.__setattr__(config.repositories["suite"].modules["reporting"], "target_path", ".")
+    object.__setattr__(config.repositories["suite"].modules["reporting"], "dir_regex", r".*/branches/([^/]+).*")
+    entry = LogEntry(
+        revision=100,
+        author="alice",
+        date=None,
+        message="Collision",
+        changed_paths=[
+            ChangedPath("/repo/project/branches/dev/billing/src/shared.py", "M"),
+            ChangedPath("/repo/project/branches/dev/reporting/src/shared.py", "M"),
+        ],
+    )
+
+    try:
+        SyncService(DryRunRunner(), file_synchronizer=RecordingFileSynchronizer()).sync(config, "suite", [entry], dry_run=False, push=False)
+    except ValueError as exc:
+        assert "module destination collision" in str(exc)
+    else:
+        raise AssertionError("sync should fail when modules map to the same destination file")
