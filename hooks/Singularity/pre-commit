@@ -1,258 +1,64 @@
 #!/bin/bash
+set -euo pipefail
 
-# 当前分支
 current_branch=$(git branch --show-current)
-
-# 如果 current_branch 以 local_ 开头则允许提交
-if [[ $current_branch == local_* ]]; then
-  echo "提交本地分支: $current_branch"
-  exit 0
-fi
-# 如果 current_branch 是空则允许提交
-if [[ $current_branch == "" ]]; then
+if [[ $current_branch == local_* || $current_branch == "" ]]; then
   echo "提交本地分支: $current_branch"
   exit 0
 fi
 
-# 不提交到 Svn 的目录或文件
 white_list=("README.md" "hooks/pre-commit" "hooks/pre-push" ".gitignore" "config.bat" "config.sh")
 
 is_in_white_list() {
   for item in "${white_list[@]}"; do
-    if [ "$item" == "$1" ]; then
-      return 1
+    if [[ "$item" == "$1" ]]; then
+      return 0
     fi
   done
-  return 0
+  return 1
 }
 
-all_in_white_list() {
-  # 默认将 all_in 设置为 1
-  local all_in=1
-
-  local array=("$@")
-  # 元素个数为 0 返回 1
-  if [ ${#array[@]} -eq 0 ]; then
-    return $all_in
+require_var() {
+  if [[ -z "${!1:-}" ]]; then
+    echo "$1 is required for service-owned reverse sync"
+    exit 1
   fi
-
-  # 遍历另一个数组中的所有元素
-  for item in "${array[@]}"; do
-    if [ "$item" == "" ]; then
-      echo "跳过空字符串"
-      continue
-    fi
-    is_in_white_list "$item"
-    if [ $? -eq 1 ]; then
-      continue
-    else
-      all_in=0
-      echo "包含 svn 仓库的文件, 不允许提交到 Git"
-      break
-    fi
-  done
-
-  return $all_in
 }
 
-# 获取本次提交信息
-commit_msg_path=$(eval echo ~"${SUDO_USER}")/AppData/Local/Temp/git-commit-msg-.txt
-commit_msg=$(git log -1 --pretty=%B)
-# 如果 commit_msg_path 存在
-if [ -f "$commit_msg_path" ]; then
-  commit_msg=$(cat "$commit_msg_path")
-fi
-echo "提交信息: $commit_msg"
+require_var SVN2GIT_SERVICE_URL
+SVN2GIT_REPO_NAME=${SVN2GIT_REPO_NAME:-Singularity}
 
-# 获取Git仓库路径
-GIT_REPO_PATH=$(git rev-parse --show-toplevel)
-# 如果 GIT_REPO_PATH 包含 ":"
-if [[ $GIT_REPO_PATH == *":"* ]]; then
-  # 将 ":" 转换为 "/"
-  GIT_REPO_PATH=/${GIT_REPO_PATH//:/}
-fi
-echo "Git 仓库路径: $GIT_REPO_PATH"
-
-# 获取SVN仓库路径
-SVN_REPO_PATH=$(cat "$GIT_REPO_PATH/.svn_path")
-# 如果 SVN_REPO_PATH 包含 ":"
-if [[ $SVN_REPO_PATH == *":"* ]]; then
-  # 将 ":" 转换为 "/"
-  SVN_REPO_PATH=/${SVN_REPO_PATH//:/}
-fi
-echo "SVN 仓库路径: $SVN_REPO_PATH"
-
-# 获取 SVN 仓库地址
-current_path=$(pwd)
-cd "$SVN_REPO_PATH"
-# 更新 svn 项目
-svn update
-SVN_REPO_URL=$(svn info --show-item url)
-cd "$current_path"
-echo "SVN 仓库地址: $SVN_REPO_URL"
-
-echo "↓"
-echo "========== 检查 git 版本是否最新 =========="
-# 确保git分支是最新的
-git fetch
-
-local_commit=$(git rev-parse "$current_branch")
-remote_commit=$(git rev-parse "origin/$current_branch")
-echo "本地分支: $current_branch"
-
-if [ "$local_commit" != "$remote_commit" ]; then
-  echo "本地分支最新提交: $local_commit"
-  echo "远程分支最新提交: $remote_commit"
-  echo "您的分支相对于远程分支不是最新的。请先更新代码后再试。"
-  exit 1
-fi
-
-echo "↓"
-echo "========== 检查 svn、git 版本同步状态 =========="
-# 获取远程 svn 最新版本号
-remote_svn_version=$(svn info "$SVN_REPO_URL" | grep "Last Changed Rev" | awk '{print $4}')
-# 获取最近 10 次提交记录
-git_log=$(git log -n 10 --branches --no-merges --format=%s)
-# 获取 git 项目已同步的 svn 版本号
-git_svn_version=$(echo "$git_log" | grep 'SVN version' | head -n 1)
-# 从 git_svn_version 截取 ":" 左边的部分
-git_svn_version=${git_svn_version%%:*}
-# 从 git_svn_version 截取最后一个 " " 右边的部分
-git_svn_version=${git_svn_version##* }
-# 如果 git_svn_version 不等于 remote_svn_version 则提示先同步 svn 仓库并退出
-if [ "$git_svn_version" != "$remote_svn_version" ]; then
-  echo "当前 git 项目版本 $git_svn_version 落后于 SVN 项目版本 $remote_svn_version。请先等待远程仓库同步并更新代码后再试。"
-  # 调用接口立即同步代码仓库
-  curl -s -X GET --location "http://192.168.1.58:917/sync/Singularity"
-  exit 1
-fi
-
-echo "↓"
-echo "========== 新增或修改或移动的文件 =========="
-# 获取git暂存区(staged)中的文件列表
 staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
-# 删除的文件
-git diff --cached --name-only --diff-filter=D > deleted_files.cache
-# 被移动的文件
-git diff --cached --name-status --diff-filter=R | awk '{print $2}' >> deleted_files.cache
-deleted_files=$(cat deleted_files.cache)
-echo "暂存区文件列表: [$staged_files]"
-echo "删除文件列表: [$deleted_files]"
+deleted_files=$(git diff --cached --name-only --diff-filter=D)
 
-# 如果没有暂存也没有删除的文件，直接退出
-if [ -z "$staged_files" ] && [ -z "$deleted_files" ]; then
-  echo "没有新增或修改的文件"
+if [[ -z "$staged_files" && -z "$deleted_files" ]]; then
+  echo "没有新增、修改或删除的文件"
   exit 1
 fi
 
-# 如果当前在 master 分支并且所有文件都是白名单中的文件则允许提交
-if [ "$current_branch" == "master" ]; then
-  readarray -t staged_files_array <<< "$staged_files"
-  all_in_white_list "${staged_files_array[@]}"
-  staged_result=$?
-  readarray -t deleted_files_array <<< "$deleted_files"
-  all_in_white_list "${deleted_files[@]}"
-  deleted_result=$?
-  # 判断是否都返回 1，然后结束脚本
-  if [[ $staged_result -eq 1 && $deleted_result -eq 1 ]]; then
-    # 所有文件都在白名单中，允许提交
-    exit 0
-  fi
-fi
-
-# 使用patch模式将Git暂存区的更改应用于SVN工作副本
-for file in $staged_files; do
-  echo "file: $file"
-  is_in_white_list "$file"
-  if [ $? -eq 1 ]; then
+filtered_paths=""
+for file in $staged_files $deleted_files; do
+  if is_in_white_list "$file"; then
     echo "不提交 $file"
     continue
   fi
-  # AtlasCenter/docker/Dockerfile
-  # 截取 file 字符串第一个 / 左边的部分
-  model=${file%%/*}
-  # 截取 file 字符串第一个 / 右边的部分
-  content_path=${file#*/}
-  # model 换为小写
-  model_lower=${model,,}
-  # 如果 model 为 VirusCenter
-  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
-  if [ "$model" == "VirusCenter" ]; then
-    svn_path=$SVN_REPO_PATH/$model
-  fi
-  # 如果 file 不包含 '/' 并且 git_path 不是目录
-  git_path=$GIT_REPO_PATH/$file
-  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
-    svn_path=$SVN_REPO_PATH
-  fi
-  update_file_path=$svn_path/$content_path
-  echo "svn_path: $svn_path"
-  echo "update_file_path: $update_file_path"
-  git diff --cached --patch "$file" | (cd "$svn_path" && patch -p2)
-  if [ $? -ne 0 ]; then
-    echo "修改 $file 失败"
-  fi
-  # 如果文件存在则执行 svn add
-  if [ -f "$update_file_path" ]; then
-    svn add "$update_file_path" --force --parents
-  else
-    echo "$update_file_path 不存在"
-  fi
-  echo "-------------------"
+  filtered_paths+="$file"$'\n'
 done
 
-echo "↓"
-echo "========== 删除文件 =========="
-# 在SVN工作副本中删除文件
-for file in $deleted_files; do
-  echo "file: $file"
-  is_in_white_list "$file"
-  if [ $? -eq 1 ]; then
-      echo "不提交 $file"
-      continue
-  fi
-  # AtlasCenter/docker/Dockerfile
-  # 截取 file 字符串第一个 / 左边的部分
-  model=${file%%/*}
-  # 截取 file 字符串第一个 / 右边的部分
-  content_path=${file#*/}
-  # model 换为小写
-  model_lower=${model,,}
-  # 如果 model 为 VirusCenter
-  svn_path=$SVN_REPO_PATH/$model/$current_branch/$model_lower
-  if [ "$model" == "VirusCenter" ]; then
-    svn_path=$SVN_REPO_PATH/$model
-  fi
-  # 如果 file 不包含 '/' 并且 git_path 不是目录
-  git_path=$GIT_REPO_PATH/$file
-  if [[ "$file" != */* ]] && [ ! -d "$git_path" ]; then
-    svn_path=$SVN_REPO_PATH
-  fi
+if [[ -z "$filtered_paths" ]]; then
+  exit 0
+fi
 
-  delete_file_path=$svn_path/$content_path
-  echo "svn_path: $svn_path"
-  echo "delete_file_path: $delete_file_path"
+commit_msg_path=$(eval echo ~"${SUDO_USER:-$USER}")/AppData/Local/Temp/git-commit-msg-.txt
+commit_msg=$(git log -1 --pretty=%B 2>/dev/null || true)
+if [[ -f "$commit_msg_path" ]]; then
+  commit_msg=$(cat "$commit_msg_path")
+fi
+commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "uncommitted")
+module_hint=${SVN2GIT_MODULE_HINT:-}
 
-  # 如果文件存在则执行 svn rm
-  if [ -f "$delete_file_path" ]; then
-    svn rm "$delete_file_path"
-  else
-    echo "$delete_file_path 不存在"
-  fi
-  echo "-------------------"
-done
+payload=$(printf 'branch: %s\ncommit: %s\nmessage: %s\nmodule: %s\npaths:\n%s' "$current_branch" "$commit_sha" "$commit_msg" "$module_hint" "$filtered_paths")
+curl -fsS -X POST --data-binary "$payload" "$SVN2GIT_SERVICE_URL/reverse-sync/$SVN2GIT_REPO_NAME"
 
-echo "↓"
-echo "========== SVN 提交 =========="
-# 提交SVN工作副本的更改
-echo "svn_commit_msg: $commit_msg"
-cd "$SVN_REPO_PATH"
-svn commit -m "$commit_msg"
-cd "$current_path"
-
-# 调用接口立即同步代码仓库
-curl -s -X GET --location "http://192.168.1.58:917/sync/Singularity"
-
-# 拒绝git提交
-echo "Git 提交已被拒绝。更改已提交到 SVN 存储库。请等待 Git 仓库同步后更新代码检查你提交的内容。"
+echo "Git 提交已被拒绝。更改已提交给 service-owned reverse sync。请等待服务同步后更新代码检查结果。"
 exit 1

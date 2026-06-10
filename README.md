@@ -195,19 +195,15 @@ cp hooks/* .git/hooks/
 
 ## 自动提交到 SVN
 
-此部分需要在客户端配置 Git Hook，以便在提交到 Git 仓库时拦截并将变更转提交到 SVN 仓库
+当前支持的反向同步模式是兼容模式：客户端 Git Hook 不再读取 `.svn_path`，也不再修改开发者本地 SVN 工作副本。Hook 会把分支、提交信息和变更文件列表发送给服务的 `POST /reverse-sync/{repo}`，由服务自有目录负责后续 Git-to-SVN 处理。
 
-逻辑如下:
+客户端安装 `hooks/Platform` 或 `hooks/Singularity` 下的 `pre-commit` / `pre-push` 后，需要配置：
 
-- [x] 提交白名单: 在 Git 项目中提交白名单内的文件时不会转提到 SVN 项目中
-- [x] 获取本次的 commit message, 仅在 IDEA 上测试过, 命令行等其他提交方式未测试
-- [x] 获取 SVN 仓库信息
-- [x] 检查 Git 代码是否最新
-- [x] 检查 SVN Git 同步状态
-- [x] 获取并添加从 Git 项目中新增或修改的文件到 SVN 项目中
-- [x] 获取并删除从 Git 项目中删除的文件到 SVN 项目中
-- [x] 提交 SVN 代码
-- [x] 调用代码同步接口立刻触发项目同步
-- [x] 拒绝 Git 提交
+```shell
+export SVN2GIT_SERVICE_URL=http://127.0.0.1:8080
+export SVN2GIT_REPO_NAME=Platform
+```
 
-由于 SVN 项目结构复杂混乱，不同项目的结构也不相同, 详见 [Singularity](hooks%2FSingularity) 钩子脚本
+Singularity 这类 `target_path: .` 且多个模块共享 Git 根目录的仓库，必要时额外设置 `SVN2GIT_MODULE_HINT` 来消除模块反向映射歧义。
+
+直接 `git push` 仍会被客户端 `pre-push` 拒绝。服务端仓库可以参考 `hooks/templates/pre-receive` 和 `hooks/templates/post-receive`，把 strict server-side 模式接到同一个服务 API。服务生成的 Git commit 会通过 `Svn2Git-Origin: svn` 或 `SVN version ...` 标记避免回环。

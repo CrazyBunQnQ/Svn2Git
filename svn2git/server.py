@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from svn2git.commands import CommandRunner, DryRunRunner
 from svn2git.config import ConfigError, load_config
 from svn2git.jobs import JobRunner, SyncJob, load_entries, selected_repo_names
+from svn2git.reverse_sync import ReverseSyncRequest, plan_reverse_sync
 from svn2git.service import SyncService
 
 
@@ -33,6 +34,8 @@ class SyncServiceApp:
             return self._trigger("all")
         if method == "POST" and route.startswith("sync/"):
             return self._trigger(route.split("/", 1)[1])
+        if method == "POST" and route.startswith("reverse-sync/"):
+            return self._reverse_sync(route.split("/", 1)[1], "")
         if method == "GET" and route.startswith("jobs/"):
             repo_name = route.split("/", 1)[1]
             return self.jobs.get(repo_name) or Response(404, "job status not found")
@@ -45,6 +48,23 @@ class SyncServiceApp:
         self.jobs[repo_name] = recorded
         return recorded
 
+    def _reverse_sync(self, repo_name: str, body: str) -> Response:
+        config = load_config(self.config_path)
+        values = _parse_body(body)
+        request = ReverseSyncRequest(
+            repo_name=repo_name,
+            git_branch=values.get("branch", "master"),
+            commit_sha=values.get("commit", "unknown"),
+            commit_message=values.get("message", "Reverse sync"),
+            changed_paths=tuple(path for path in values.get("paths", "").splitlines() if path),
+            module_hint=values.get("module"),
+        )
+        try:
+            plan = plan_reverse_sync(config, request)
+        except ValueError as exc:
+            return Response(400, str(exc))
+        return Response(200, f"reverse-sync accepted: {plan.target_name} {plan.svn_path}")
+
 
 def create_http_server(app: SyncServiceApp, host: str, port: int) -> ThreadingHTTPServer:
     class RequestHandler(BaseHTTPRequestHandler):
@@ -52,6 +72,12 @@ def create_http_server(app: SyncServiceApp, host: str, port: int) -> ThreadingHT
             self._respond(app.handle("GET", self.path))
 
         def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length else ""
+            if self.path.startswith("/reverse-sync/"):
+                repo_name = self.path.strip("/").split("/", 1)[1]
+                self._respond(app._reverse_sync(repo_name, body))
+                return
             self._respond(app.handle("POST", self.path))
 
         def log_message(self, format: str, *args) -> None:
@@ -66,6 +92,19 @@ def create_http_server(app: SyncServiceApp, host: str, port: int) -> ThreadingHT
             self.wfile.write(encoded)
 
     return ThreadingHTTPServer((host, port), RequestHandler)
+
+
+def _parse_body(body: str) -> dict[str, str]:
+    values = {}
+    current_key = None
+    for line in body.splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            current_key = key.strip()
+            values[current_key] = value.strip()
+        elif current_key:
+            values[current_key] = f"{values[current_key]}\n{line}" if values[current_key] else line
+    return values
 
 
 def handle_sync_request(repo_name: str, config_path: str | Path, log_xml_path: str | Path | None, dry_run: bool = False) -> Response:

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+: "${SVN2GIT_SERVICE_URL:?SVN2GIT_SERVICE_URL is required}"
+: "${SVN2GIT_REPO_NAME:?SVN2GIT_REPO_NAME is required}"
+
+while read -r oldrev newrev refname; do
+  message=$(git log -1 --pretty=%B "$newrev")
+  if [[ "$message" == *"Svn2Git-Origin: svn"* || "$message" == SVN\ version\ * ]]; then
+    continue
+  fi
+  branch=${refname#refs/heads/}
+  paths=$(git diff --name-only "$oldrev" "$newrev")
+  payload=$(printf 'branch: %s\ncommit: %s\nmessage: %s\npaths:\n%s' "$branch" "$newrev" "$message" "$paths")
+  curl -fsS -X POST --data-binary "$payload" "$SVN2GIT_SERVICE_URL/reverse-sync/$SVN2GIT_REPO_NAME"
+done

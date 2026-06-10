@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+: "${SVN2GIT_SERVICE_URL:?SVN2GIT_SERVICE_URL is required}"
+: "${SVN2GIT_REPO_NAME:?SVN2GIT_REPO_NAME is required}"
+
+curl -fsS -X POST "$SVN2GIT_SERVICE_URL/sync/$SVN2GIT_REPO_NAME"

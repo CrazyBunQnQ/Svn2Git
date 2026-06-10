@@ -1,9 +1,8 @@
 #!/bin/bash
 
 echo "==================================================================================="
-echo "| 禁止自行推送代码到 Git 远程仓库。请按照 README.md 文档配置 pre-commit 和 pre-push 钩子 |"
-echo "| 之后提交 Git 时将自动提交到 SVN 仓库                                                |"
-echo "| 等待几分钟，SVN 代码会同步到 Git 远程仓库                                            |"
-echo "| 最后更新本地代码即可                                                               |"
+echo "| Direct Git push is blocked. Use service-owned reverse sync via pre-commit hook.   |"
+echo "| Configure SVN2GIT_SERVICE_URL and SVN2GIT_REPO_NAME before committing.            |"
+echo "| Wait for the service to sync changes back to the Git repository, then pull.       |"
 echo "==================================================================================="
 exit 1

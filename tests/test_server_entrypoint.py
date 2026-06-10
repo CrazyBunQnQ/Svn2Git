@@ -1,4 +1,6 @@
 from pathlib import Path
+from http.client import HTTPConnection
+from threading import Thread
 
 import svn2git.cli as cli
 from svn2git.cli import main
@@ -69,6 +71,26 @@ def test_create_http_server_binds_configured_host_and_port():
         assert server.server_address[1] > 0
     finally:
         server.server_close()
+
+
+def test_http_reverse_sync_endpoint_accepts_request(monkeypatch):
+    app = SyncServiceApp(config_path=FIXTURES / "application_modules.yml")
+    server = create_http_server(app, "127.0.0.1", 0)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = "branch: dev\ncommit: abc123\nmessage: Patch billing\npaths:\nmodules/billing/src/app.py"
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+        connection.request("POST", "/reverse-sync/suite", body=body)
+        response = connection.getresponse()
+        payload = response.read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert response.status == 200
+    assert "reverse-sync accepted" in payload
 
 
 def test_cli_serve_validates_config_and_starts_server(monkeypatch):
