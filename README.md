@@ -46,6 +46,8 @@ python -m svn2git serve --config config/application.yml --host 127.0.0.1 --port 
 
 [application.yml.example](config%2Fapplication.yml.example) 是示例配置；实际使用时复制为 `config/application.yml` 并按本地环境修改。`config/application.yml` 已被 Git 忽略，不应提交账号、路径等本地正式配置。
 
+新的服务架构把路径所有权拆开：服务自有 SVN 工作副本只由服务执行 `svn update`；服务自有 Git 同步工作树只由服务 checkout、复制文件、commit 和 push；目标 Git 仓库是开发者 clone/fetch 的仓库，可以是本地 bare repository；service state 保存 checkpoints、full-sync revision、job/status 等运行状态。
+
 #### SVN 账号
 
 ```yaml
@@ -72,14 +74,18 @@ git:
 svn_git_mapping:
   platform:
     svn_url: your_svn_url
-    svn_project_path: your_sync_svn_project_path
-    git_project_path: your_sync_git_project_path
+    svn_project_path: your_service_svn_working_copy_path
+    git_repository_path: your_target_git_repository_path
+    git_worktree_path: your_service_git_sync_worktree_path
+    state_path: your_service_state_path
     dir_regx: a_regular_expression_to_match_your_project_branch
     full_sync_interval: 1000
   example:
     svn_url: http://127.0.0.1:8443/repo/example
     svn_project_path: F:\SvnRepo\SMPlatform
-    git_project_path: F:\GitRepo\Platform
+    git_repository_path: F:\GitRepo\Platform.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Platform
+    state_path: F:\Svn2GitService\state\Platform
     dir_regx: .*/branches/([^/]+).*
 ```
 
@@ -96,8 +102,9 @@ svn_git_mapping:
   suite:
     svn_url: https://svn.example.com/repos/main
     svn_project_path: F:\SvnRepo\Suite
-    git_project_path: F:\GitRepo\Suite
-    git_remote_url: ssh://git.example.com/suite.git
+    git_repository_path: F:\GitRepo\Suite.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Suite
+    state_path: F:\Svn2GitService\state\Suite
     dir_regx: .*/branches/([^/]+).*
     modules:
       billing:
@@ -114,9 +121,9 @@ svn_git_mapping:
         dir_regx: .*/release/([^/]+).*
 ```
 
-同步时会在顶层 Git 仓库中切换目标分支，分别更新参与本次 SVN revision 的模块工作副本，把文件复制到各自 `target_path` 下，然后按 Git 项目、Git 分支、SVN revision 提交一次。
+同步时会在服务自有 Git 同步工作树中切换目标分支，分别更新参与本次 SVN revision 的服务自有 SVN 工作副本，把文件复制到各自 `target_path` 下，然后按 Git 项目、Git 分支、SVN revision 提交一次并推送到目标 Git 仓库。
 
-模块未配置 `full_sync_interval` 时继承父仓库；单独配置后只影响该模块。全量同步状态写在 Git 工作树的 `.svn_full_sync_versions/<target>/<git_branch>` 下，普通增量 checkpoint 仍使用 `.svn_version` 或 `.svn_versions/<target>`。
+模块未配置 `full_sync_interval` 时继承父仓库；单独配置后只影响该模块。全量同步状态和普通增量 checkpoint 都写入 service state，不再写入 Git 同步工作树。
 
 如果同一个模块的不同分支来自不同 SVN 仓库或不同工作副本路径，可以使用 `branch_overrides` 指定分支级来源。上例中 `billing` 模块的 `dev` 分支会使用 `https://svn.example.com/repos/billing-dev` 和 `F:\SvnRepo\BillingDev`。真实同步默认会在提交后执行 `git push --all`；只想验证本地 Git 提交时加 `--no-push`。
 
@@ -127,7 +134,9 @@ svn_git_mapping:
   singularity:
     svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity
     svn_project_path: F:\SvnTest\Singularity
-    git_project_path: F:\Svn2GitTest\Singularity
+    git_repository_path: F:\GitRepo\Singularity.git
+    git_worktree_path: F:\Svn2GitService\worktrees\Singularity
+    state_path: F:\Svn2GitService\state\Singularity
     modules:
       common:
         svn_url: https://192.168.0.182:8443/repo/codes/IOTP/Tobacco/trunk/Singularity/Common
