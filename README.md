@@ -66,7 +66,10 @@ git:
     user1name: user1email
     user2name: user2email
     user3name: user3email
+  default_email_suffix: icssla.com
 ```
+
+`default_email_suffix` 用于同步前无法完整配置 `user_map` 的场景。遇到未映射 SVN 用户时，会使用 `SVN用户名@default_email_suffix` 作为 Git 提交邮箱，并在提交成功后把用户名追加到 `.svn2git-unmapped-users.txt`，方便人工审核后补全 `user_map`。该文件已加入 `.gitignore`。
 
 #### 同步项目
 

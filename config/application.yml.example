@@ -16,6 +16,8 @@ git:
     user1name: user1email@example.com
     user2name: user2email@example.com
     user3name: user3email@example.com
+  # 未配置到 user_map 的 SVN 用户会使用 `SVN用户名@默认后缀` 作为 Git 邮箱；不配置则保持旧行为。
+  default_email_suffix: icssla.com
 
 # 要同步的项目设置。顶层 key 是仓库名，CLI 的 --repo 参数使用这个名字。
 # 也兼容旧 key 名 svn2git，但推荐使用 svn_git_mapping。
