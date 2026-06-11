@@ -118,6 +118,7 @@ class AppConfig:
     git_username: str | None
     git_password: str | None
     user_map: dict[str, str]
+    default_email_suffix: str | None
     repositories: dict[str, RepositoryConfig]
     mail: dict[str, Any]
 
@@ -145,6 +146,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
         git_username=git.get("username"),
         git_password=git.get("password"),
         user_map=dict(git.get("user_map") or {}),
+        default_email_suffix=_optional_str(git, "default_email_suffix"),
         repositories=repositories,
         mail=dict(raw.get("mail") or {}),
     )

@@ -26,13 +26,17 @@ class GitRepositoryManager:
             self.runner.require(["git", "fetch", "origin"], cwd=worktree)
         self.checkout_branch(worktree, branch)
 
-    def commit_and_push(self, target: SyncTarget, branch: str, message: str, push: bool = True) -> bool:
+    def commit_and_push(self, target: SyncTarget, branch: str, message: str, author: str | None = None, push: bool = True) -> bool:
         worktree = target.git_path
         self.runner.require(["git", "add", "."], cwd=worktree)
         diff_result = self.runner.run(["git", "diff", "--cached", "--quiet"], cwd=worktree)
         if diff_result.exit_code == 0 and not diff_result.stdout.startswith("DRY-RUN "):
             return False
-        self.runner.require(["git", "commit", "-m", message], cwd=worktree)
+        commit_command = ["git", "commit"]
+        if author:
+            commit_command.extend(["--author", author])
+        commit_command.extend(["-m", message])
+        self.runner.require(commit_command, cwd=worktree)
         if push:
             repository = self._repository(target)
             if repository:

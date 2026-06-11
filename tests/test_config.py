@@ -66,6 +66,25 @@ def test_legacy_repository_without_submodules():
     assert targets[0].full_sync_interval == 1000
 
 
+def test_git_default_email_suffix_is_parsed():
+    config = parse_config(
+        {
+            "git": {
+                "default_email_suffix": "icssla.com",
+            },
+            "svn_git_mapping": {
+                "legacy": {
+                    "svn_url": "https://svn.example.com/repos/main",
+                    "svn_project_path": "Q:\\svn2git-fixture\\svn\\Legacy",
+                    "git_project_path": "Q:\\svn2git-fixture\\git\\Legacy",
+                }
+            },
+        }
+    )
+
+    assert config.default_email_suffix == "icssla.com"
+
+
 def test_repository_service_paths_are_distinct_from_target_repository():
     config = parse_config(
         {

@@ -23,8 +23,8 @@ def test_sync_batches_modules_without_git_submodules():
     assert all("git submodule" not in command for command in command_text)
     assert all(".gitmodules" not in command for command in command_text)
     assert "svn update -r 41 Q:\\svn2git-fixture\\svn\\BillingDev" in command_text
-    assert "git commit -m SVN version 41: Add billing feature" in command_text
-    assert command_text.count("git commit -m SVN version 41: Add billing feature") == 1
+    assert "git commit --author alice <alice@example.com> -m SVN version 41: Add billing feature" in command_text
+    assert command_text.count("git commit --author alice <alice@example.com> -m SVN version 41: Add billing feature") == 1
 
 
 def test_legacy_sync_does_not_emit_submodule_commands():
@@ -136,8 +136,46 @@ def test_sync_can_skip_git_push_for_local_verification():
     SyncService(runner).sync(config, "legacy", entries, dry_run=True, push=False)
 
     command_text = [" ".join(command.args) for command in runner.commands]
-    assert "git commit -m SVN version 999999999: Local verification" in command_text
+    assert "git commit --author alice <alice@example.com> -m SVN version 999999999: Local verification" in command_text
     assert all("git push" not in command for command in command_text)
+
+
+def test_sync_uses_default_email_suffix_for_unmapped_author(tmp_path):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    object.__setattr__(config, "default_email_suffix", "icssla.com")
+    entry = LogEntry(
+        revision=999999998,
+        author="charlie",
+        date=None,
+        message="Unmapped author",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+    runner = DryRunRunner()
+
+    SyncService(runner).sync(config, "legacy", [entry], dry_run=True, push=False)
+
+    command_text = [" ".join(command.args) for command in runner.commands]
+    assert "git commit --author charlie <charlie@icssla.com> -m SVN version 999999998: Unmapped author" in command_text
+
+
+def test_sync_appends_unmapped_author_once_after_real_commit(tmp_path, monkeypatch):
+    config = load_config(FIXTURES / "application_legacy.yml")
+    object.__setattr__(config, "default_email_suffix", "icssla.com")
+    unmapped_users_file = tmp_path / "unmapped-users.txt"
+    monkeypatch.setattr("svn2git.service.UNMAPPED_USERS_FILE", unmapped_users_file)
+    object.__setattr__(config.repositories["legacy"], "git_project_path", str(tmp_path / "git"))
+    entry = LogEntry(
+        revision=999999997,
+        author="charlie",
+        date=None,
+        message="Unmapped author",
+        changed_paths=[ChangedPath("/repo/project/branches/dev/billing/src/app.py", "M")],
+    )
+
+    SyncService(BranchAwareDryRunRunner()).sync(config, "legacy", [entry], dry_run=False, push=False)
+    SyncService(BranchAwareDryRunRunner()).sync(config, "legacy", [entry], dry_run=False, push=False)
+
+    assert unmapped_users_file.read_text(encoding="utf-8") == "charlie\n"
 
 
 def test_sync_validates_existing_repo_remote_url():
@@ -201,8 +239,8 @@ def test_sync_allows_multiple_modules_targeting_git_root():
     SyncService(runner).sync(config, "singularity", entries, dry_run=True, push=False)
 
     command_text = [" ".join(command.args) for command in runner.commands]
-    assert "git commit -m SVN version 213: Patch Common 2.13" in command_text
-    assert "git commit -m SVN version 214: Patch framework platform_2.13" in command_text
+    assert "git commit --author alice <alice@example.com> -m SVN version 213: Patch Common 2.13" in command_text
+    assert "git commit --author alice <alice@example.com> -m SVN version 214: Patch framework platform_2.13" in command_text
 
 
 def test_mixed_module_revision_syncs_one_repo_batch_with_relevant_paths():
@@ -255,7 +293,7 @@ def test_same_svn_revision_syncs_each_branch_with_only_its_paths():
     command_text = [" ".join(command.args) for command in runner.commands]
     assert "git checkout -B dev" in command_text
     assert "git checkout -B release" in command_text
-    assert command_text.count("git commit -m SVN version 100: Patch two branches") == 2
+    assert command_text.count("git commit --author alice <alice@example.com> -m SVN version 100: Patch two branches") == 2
     assert [item[:2] for item in recorder.applied] == [
         ("legacy", ["/repo/project/branches/dev/src/app.py"]),
         ("legacy", ["/repo/project/branches/release/src/app.py"]),

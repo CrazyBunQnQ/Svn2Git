@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import replace
+from pathlib import Path
 
 from svn2git.commands import CommandRunner, DryRunRunner
 from svn2git.config import AppConfig, SyncTarget
@@ -12,6 +13,9 @@ from svn2git.state import SyncState
 from svn2git.svn_log import LogEntry
 
 
+UNMAPPED_USERS_FILE = Path(".svn2git-unmapped-users.txt")
+
+
 class SyncService:
     def __init__(self, runner: CommandRunner | DryRunRunner, file_synchronizer: FileSynchronizer | None = None) -> None:
         self.runner = runner
@@ -20,10 +24,10 @@ class SyncService:
 
     def sync(self, config: AppConfig, repo_name: str, entries: list[LogEntry], dry_run: bool = False, push: bool = True) -> SyncPlan:
         plan = build_sync_plan(config, repo_name, entries, dry_run=dry_run)
-        self._sync_plan(plan, dry_run, push)
+        self._sync_plan(config, plan, dry_run, push)
         return plan
 
-    def _sync_plan(self, plan: SyncPlan, dry_run: bool, push: bool) -> None:
+    def _sync_plan(self, config: AppConfig, plan: SyncPlan, dry_run: bool, push: bool) -> None:
         self._validate_module_targets(plan)
         batches = defaultdict(list)
         for target_plan in plan.target_plans:
@@ -43,7 +47,10 @@ class SyncService:
             message = f"SVN version {first_revision.revision}"
             if first_revision.message:
                 message = f"{message}: {first_revision.message}"
-            committed = self.git_repository.commit_and_push(target, git_branch, message, push=push)
+            author = self._git_author(config, first_revision.author)
+            committed = self.git_repository.commit_and_push(target, git_branch, message, author=author, push=push)
+            if committed and not dry_run:
+                self._record_unmapped_user(config, first_revision.author)
             if not dry_run and push and committed:
                 for item_target, revision in items:
                     state = SyncState.for_target(item_target)
@@ -97,3 +104,24 @@ class SyncService:
             if normalized in seen_roots:
                 raise ValueError(f"duplicate module target path: {target.target_path}")
             seen_roots.add(normalized)
+
+    def _git_author(self, config: AppConfig, svn_author: str) -> str | None:
+        email = config.user_map.get(svn_author)
+        if not email and config.default_email_suffix:
+            email = f"{svn_author}@{config.default_email_suffix.lstrip('@')}"
+        if not email:
+            return None
+        return f"{svn_author} <{email}>"
+
+    def _record_unmapped_user(self, config: AppConfig, svn_author: str) -> None:
+        if svn_author in config.user_map or not config.default_email_suffix:
+            return
+        path = UNMAPPED_USERS_FILE
+        existing = set()
+        if path.exists():
+            existing = {line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()}
+        if svn_author in existing:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(f"{svn_author}\n")
