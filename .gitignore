@@ -34,6 +34,7 @@ build/
 *.log
 /.svn_update
 /config/application.yml
+/.svn2git-unmapped-users.txt
 /.mvn/
 /logs/
 .claude
